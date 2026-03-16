@@ -76,7 +76,8 @@ def build_ferry_config(
 ) -> dict[str, Any]:
     user_config = dict(config or {})
     base_config = _build_default_ferry_config(runtime=runtime, config=user_config)
-    return _deep_merge(base_config, user_config)
+    merged = _deep_merge(base_config, user_config)
+    return _normalize_ferry_config(merged, runtime=runtime)
 
 
 def materialize_ferry_config(
@@ -134,9 +135,6 @@ def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping
                 "node": "planner_flex",
                 "module": "ferry.core.flex.nodes.constrained_actor.ConstrainedActor",
                 "chat_model": {"name": chat_model_name},
-                "prompt_template": {
-                    "system": {"type": "default"},
-                },
             },
             {
                 "node": "executor",
@@ -178,3 +176,49 @@ def _deep_merge(base: Any, override: Any) -> Any:
     if isinstance(base, list) and isinstance(override, list):
         return [*base, *override]
     return override
+
+
+def _normalize_ferry_config(config: dict[str, Any], *, runtime: SkillCreatorRuntime) -> dict[str, Any]:
+    normalized = dict(config)
+
+    skill_creator_cfg = dict(normalized.get("SKILL_CREATOR", {}))
+    skill_creator_cfg["skills_root"] = str(runtime.settings.skills_root)
+    skill_creator_cfg["graph_enabled"] = runtime.settings.graph_enabled
+    normalized["SKILL_CREATOR"] = skill_creator_cfg
+
+    workspace_cfg = dict(normalized.get("WORKSPACE", {}))
+    allowed_paths = [str(path) for path in workspace_cfg.get("allowed_paths", [])]
+    workspace_cfg["allowed_paths"] = _dedupe_strings([str(runtime.settings.skills_root), *allowed_paths])
+    normalized["WORKSPACE"] = workspace_cfg
+
+    tools_cfg = dict(normalized.get("TOOLS", {}))
+    tools_cfg["local_functions"] = _dedupe_local_functions(tools_cfg.get("local_functions", []))
+    tools_cfg["skills"] = runtime.build_ferry_skill_registry()
+    normalized["TOOLS"] = tools_cfg
+
+    return normalized
+
+
+def _dedupe_local_functions(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        key = (str(tool.get("name") or ""), str(tool.get("function") or tool.get("name") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(tool)
+    return deduped
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped

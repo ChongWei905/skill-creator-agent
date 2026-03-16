@@ -1,24 +1,29 @@
 from __future__ import annotations
 
-from pathlib import Path
+from ferry.core.cbb.base_agent import BaseAgent
+from ferry.core.flex.agent import FlexAgent
 
 from skill_creator_agent.agent import SkillCreatorAgent
 from skill_creator_agent.paths import package_path
 
 
-def test_skill_creator_agent_from_yaml_uses_runtime_fixture():
+def test_skill_creator_agent_from_yaml_uses_runtime_fixture(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
         package_path("skill_creator_debug.yaml")
     )
 
     skills = agent.list_skills()
 
+    assert isinstance(agent, BaseAgent)
+    assert isinstance(agent, FlexAgent)
     assert len(skills) == 1
     assert skills[0]["name"] == "skill-creator-smoke"
     assert skills[0]["scripts"][0]["name"] == "echo_input"
 
 
-def test_skill_creator_agent_delegates_script_execution():
+def test_skill_creator_agent_delegates_script_execution(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
         {
             "SKILL_CREATOR": {
@@ -33,7 +38,8 @@ def test_skill_creator_agent_delegates_script_execution():
     assert result["stdout"].strip() == "agent"
 
 
-def test_skill_creator_agent_builds_ferry_config_with_runtime_tools():
+def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
         {
             "MODEL": {
@@ -59,9 +65,8 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools():
     assert config["TOOLS"]["skills"][0]["name"] == "skill-creator-smoke"
 
 
-def test_skill_creator_agent_materializes_ferry_config_and_delegates_to_data_agent(monkeypatch, tmp_path):
-    import ferry.interface.sdk.agent as ferry_agent_module
-
+def test_skill_creator_agent_materializes_ferry_config(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
         {
             "MODEL": {
@@ -76,15 +81,10 @@ def test_skill_creator_agent_materializes_ferry_config_and_delegates_to_data_age
             },
         }
     )
-    observed: dict[str, Path] = {}
 
-    monkeypatch.setattr(
-        ferry_agent_module.DataAgent,
-        "from_config",
-        classmethod(lambda cls, config: observed.setdefault("config_path", Path(config))),
-    )
+    path = agent.materialize_ferry_config(tmp_path / "skill_creator_ferry.yaml")
+    rendered = path.read_text(encoding="utf-8")
 
-    result = agent.create_ferry_agent(tmp_path / "skill_creator_ferry.yaml")
-
-    assert result == observed["config_path"]
-    assert observed["config_path"].exists()
+    assert path.exists()
+    assert "agent_type: skill_creator" in rendered
+    assert "create_skill_scaffold" in rendered

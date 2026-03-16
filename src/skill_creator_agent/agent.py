@@ -1,26 +1,37 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any, Mapping
 
 import yaml
+from ferry.actions.tools import tool_manager
+from ferry.core.flex.agent import FlexAgent
+from ferry.core.managers.action_manager import mechanism_manager
+from ferry.core.managers.llm_manager import llm_manager
+from ferry.core.managers.prompt_manager import prompt_manager
 
 from skill_creator_agent.ferry_config import build_ferry_config, materialize_ferry_config
 from skill_creator_agent.ferry_tools import configure_runtime_tools
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
 
-class SkillCreatorAgent:
-    def __init__(self, *, config: Mapping[str, Any], runtime: SkillCreatorRuntime | None = None):
-        self.config = dict(config)
-        self.runtime = runtime or SkillCreatorRuntime.from_config(self.config)
-        configure_runtime_tools(config=self.config, runtime=self.runtime)
-
+class SkillCreatorAgent(FlexAgent):
     @classmethod
     def from_config(cls, config: str | Path | Mapping[str, Any] | None = None) -> "SkillCreatorAgent":
-        cfg = _config_to_dict(config)
-        return cls(config=cfg)
+        source_cfg = _config_to_dict(config)
+        runtime = SkillCreatorRuntime.from_config(source_cfg)
+        configure_runtime_tools(config=source_cfg, runtime=runtime)
+        ferry_cfg = build_ferry_config(source_cfg, runtime=runtime)
+        _ensure_global_init(ferry_cfg)
+
+        agent = super().from_config(ferry_cfg)
+        if not isinstance(agent, cls):
+            raise TypeError(f"Expected {cls.__name__}, got {type(agent).__name__}")
+
+        agent.runtime = runtime
+        agent.source_config = source_cfg
+        agent.ferry_config = ferry_cfg
+        return agent
 
     def list_skills(self) -> list[dict[str, Any]]:
         return self.runtime.list_skills()
@@ -67,21 +78,10 @@ class SkillCreatorAgent:
         )
 
     def build_ferry_config(self) -> dict[str, Any]:
-        return build_ferry_config(self.config, runtime=self.runtime)
+        return dict(self.ferry_config)
 
     def materialize_ferry_config(self, output_path: str | Path) -> Path:
-        return materialize_ferry_config(self.config, runtime=self.runtime, output_path=output_path)
-
-    def create_ferry_agent(self, output_path: str | Path | None = None):
-        from ferry.interface.sdk.agent import DataAgent
-
-        if output_path is None:
-            with NamedTemporaryFile("w", suffix=".yaml", delete=False) as temp_file:
-                target_path = Path(temp_file.name)
-            self.materialize_ferry_config(target_path)
-        else:
-            target_path = self.materialize_ferry_config(output_path)
-        return DataAgent.from_config(target_path)
+        return materialize_ferry_config(self.source_config, runtime=self.runtime, output_path=output_path)
 
 
 def _config_to_dict(config: str | Path | Mapping[str, Any] | None) -> dict[str, Any]:
@@ -94,3 +94,11 @@ def _config_to_dict(config: str | Path | Mapping[str, Any] | None) -> dict[str, 
     if not isinstance(data, dict):
         raise ValueError("SkillCreatorAgent config must deserialize to a mapping")
     return data
+
+
+def _ensure_global_init(config: dict[str, Any]) -> None:
+    llm_manager.init_from_config(config)
+    prompt_manager.init_from_config(config)
+    tool_manager.init_from_config(config)
+    mechanism_manager.init_from_config(config)
+    tool_manager.enable_auto_discover()

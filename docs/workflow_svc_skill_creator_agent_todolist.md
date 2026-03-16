@@ -245,7 +245,8 @@ cd /Users/weichong/Documents/new_working_area/ferry
 2. `ferry` bridge 的最小接入
    - 已新增 `skill_creator_agent.ferry_tools`，把 skill runtime 能力暴露成 `ferry` 可注册的 `local_functions`
    - 已新增 `skill_creator_agent.ferry_config`，可生成兼容 `DataAgent/FlexAgent` 的配置
-   - `SkillCreatorAgent.create_ferry_agent(...)` 已能通过 `ferry.interface.sdk.agent.DataAgent.from_config(...)` 建立实例
+   - `SkillCreatorAgent` 已直接继承 `ferry.core.flex.agent.FlexAgent`，不再停留在 facade/wrapper 形态
+   - `SkillCreatorAgent.from_config(...)` 会先装配 runtime/tools，再返回真正可 `chat/astream` 的 `FlexAgent` 子类实例
 
 3. 创建链路测试
    - 已覆盖新建 scaffold、reload、以及 `ferry.actions.tools.manager.ToolManager` 注册调用自定义工具的集成测试
@@ -267,7 +268,7 @@ cd /Users/weichong/Documents/new_working_area/ferry
    - 为新创建的 skills 增加基本目录契约校验
 
 3. 接入真实 LLM 驱动 loop
-   - 使用 `SkillCreatorAgent.create_ferry_agent(...)` 生成的 `DataAgent`
+   - 直接使用 `SkillCreatorAgent.from_config(...)` 返回的 agent 实例
    - 用真实模型配置手动验证：
      - skills 元数据注入
      - `create_skill_scaffold -> write_file/apply_patch -> reload_skill -> execute_skill_script`
@@ -339,17 +340,17 @@ src/skill_creator_agent/
 
 ### 2.1 Create the Agent Directory
 
-- [ ] 新建 `src/skill_creator_agent/`
-- [ ] 添加 `__init__` 所需导出
-- [ ] 新建 `agent.py`
-- [ ] 新建 `skill_creator_agent.yaml`
+- [x] 新建 `src/skill_creator_agent/`
+- [x] 添加 `__init__` 所需导出
+- [x] 新建 `agent.py`
+- [x] 新建 `skill_creator_agent.yaml`
 
 ### 2.2 Implement a Thin Agent Wrapper
 
-- [ ] 参考 `ferry/agents/deep_analysis/agent.py`
-- [ ] 在 `agent.py` 中实现 `SkillCreatorAgent.from_config(...)`
-- [ ] 确保该 agent 底层仍然走 `FlexAgent`
-- [ ] 在必要时注入默认 scenario 和运行配置
+- [x] 参考 `ferry/agents/deep_analysis/agent.py`
+- [x] 在 `agent.py` 中实现 `SkillCreatorAgent.from_config(...)`
+- [x] 确保该 agent 底层仍然走 `FlexAgent`
+- [x] 在必要时注入默认 scenario 和运行配置
 
 ### 2.3 Register Agent Type
 

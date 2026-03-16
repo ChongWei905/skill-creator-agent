@@ -32,13 +32,14 @@ def test_phase0_smoke_skill_fixture_contract():
     assert scripts == ["echo_input.sh"]
 
 
-def test_phase0_debug_config_registers_smoke_skill():
+def test_phase0_debug_config_registers_smoke_skill(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(DEBUG_CONFIG_PATH)
     skill_root = resolve_local_path(SMOKE_SKILL_REL_PATH)
     skills = agent.list_skills()
     skill_meta = skills[0]
 
-    assert agent.config["SKILL_CREATOR"]["skills_root"] == "fixtures/minimal_skills"
+    assert Path(agent.config["SKILL_CREATOR"]["skills_root"]).resolve() == resolve_local_path("fixtures/minimal_skills")
     assert skill_meta["name"] == "skill-creator-smoke"
     assert Path(skill_meta["path"]).resolve() == skill_root
     assert skill_meta["scripts"][0]["name"] == "echo_input"
