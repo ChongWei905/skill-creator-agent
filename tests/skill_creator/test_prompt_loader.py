@@ -36,3 +36,13 @@ def test_prompt_loader_replaces_known_placeholders_only():
 def test_prompt_loader_raises_for_unknown_prompt():
     with pytest.raises(FileNotFoundError):
         prompt_path("does_not_exist")
+
+
+def test_skill_creation_workflow_keeps_user_approval_gates():
+    content = load_prompt(SKILL_CREATION_WORKFLOW)
+
+    assert "## Step 1: Confirm Skill Creation Need" in content
+    assert "## Step 2: Gather Reference Documentation" in content
+    assert "## Step 4: Present Execution Plan For Approval" in content
+    assert content.count("STOP HERE. Wait for the user's response.") == 2
+    assert "STOP HERE. Wait for the user's explicit approval." in content

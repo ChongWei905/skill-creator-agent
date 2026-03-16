@@ -62,6 +62,8 @@ def test_runtime_builds_system_prompt_with_skill_context_and_reminder():
     assert "Create a smoke-test skill" in prompt
     assert "Available Skills" in prompt
     assert "Skill Creation Workflow" in prompt
+    assert "Turn A: only explain that no matching skill exists" in prompt
+    assert "STOP HERE. Wait for the user's explicit approval." in prompt
 
 
 def test_runtime_builds_direct_query_prompt_with_direct_fallback():
