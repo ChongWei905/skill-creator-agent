@@ -157,6 +157,86 @@ class SkillCreatorRuntime:
             get_all_properties=get_all_properties,
         )
 
+    def graph_property_info(
+        self,
+        element_class: str,
+        element_type: str,
+        element_uuid: str,
+    ) -> dict[str, Any]:
+        return self.get_graph_connector().property_info_search(
+            element_class,
+            element_type,
+            element_uuid,
+        )
+
+    def graph_hop_search(
+        self,
+        uuid: str,
+        hop_num: int,
+        accurate_flag: bool = False,
+    ) -> list[dict[str, Any]]:
+        return self.get_graph_connector().hop_search(
+            uuid,
+            hop_num,
+            accurate_flag,
+        )
+
+    def graph_count_search(
+        self,
+        element_class: str,
+        element_type: str,
+        filter_dict: dict[str, Any],
+    ) -> int:
+        return self.get_graph_connector().count_search(
+            element_class,
+            element_type,
+            filter_dict,
+        )
+
+    def graph_aggregate_search(
+        self,
+        element_class: str,
+        element_type: str,
+        target_property: str,
+        agg_func: str,
+        filter_dict: dict[str, Any],
+    ) -> Any:
+        return self.get_graph_connector().aggregate_search(
+            element_class,
+            element_type,
+            target_property,
+            agg_func,
+            filter_dict,
+        )
+
+    def graph_sorted_search(
+        self,
+        element_class: str,
+        element_type: str,
+        filter_dict: dict[str, Any] | None = None,
+        return_properties: list[str] | None = None,
+        sort_by: str | None = None,
+        ascending: bool = True,
+    ) -> list[dict[str, Any]]:
+        return self.get_graph_connector().sorted_search(
+            element_class,
+            element_type,
+            filter_dict=filter_dict,
+            return_properties=return_properties,
+            sort_by=sort_by,
+            ascending=ascending,
+        )
+
+    def graph_pattern_search(
+        self,
+        path_pattern: list[list[Any]],
+        return_vars: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.get_graph_connector().pattern_search(
+            path_pattern,
+            return_vars=return_vars,
+        )
+
     def reload_skill(self, name: str) -> Skill:
         self.load_skills()
         return self.loader.reload_skill(name)

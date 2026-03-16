@@ -68,6 +68,121 @@ class GraphConnector:
             return [item.get("properties", {}) for item in output_raw]
         return output_raw
 
+    def hop_search(
+        self,
+        uuid: str,
+        hop_num: int,
+        accurate_flag: bool = False,
+    ) -> list[dict[str, Any]]:
+        return self._request(
+            "POST",
+            "/api/v1/search/hop_search",
+            {
+                "uuid": uuid,
+                "hop_num": hop_num,
+                "accurate_flag": accurate_flag,
+            },
+        )
+
+    def count_search(
+        self,
+        element_class: str,
+        element_type: str,
+        filter_dict: dict[str, Any],
+    ) -> int:
+        result = self._request(
+            "POST",
+            "/api/v1/search/count_search",
+            {
+                "element_class": element_class,
+                "element_type": element_type,
+                "filter_dict": filter_dict,
+            },
+        )
+        if result and isinstance(result[0], dict):
+            return int(result[0].get("count", 0))
+        return 0
+
+    def aggregate_search(
+        self,
+        element_class: str,
+        element_type: str,
+        target_property: str,
+        agg_func: str,
+        filter_dict: dict[str, Any],
+    ) -> Any:
+        result = self._request(
+            "POST",
+            "/api/v1/search/aggregate_search",
+            {
+                "element_class": element_class,
+                "element_type": element_type,
+                "target_property": target_property,
+                "agg": agg_func,
+                "filter_dict": filter_dict,
+            },
+        )
+        if result and isinstance(result[0], dict):
+            for key, value in result[0].items():
+                normalized = key.lower()
+                if "value" in normalized or normalized.startswith(agg_func.lower()):
+                    return value
+            return next(iter(result[0].values()), None)
+        return None
+
+    def sorted_search(
+        self,
+        element_class: str,
+        element_type: str,
+        filter_dict: dict[str, Any] | None = None,
+        return_properties: list[str] | None = None,
+        sort_by: str | None = None,
+        ascending: bool = True,
+    ) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {
+            "element_class": element_class,
+            "element_type": element_type,
+        }
+        if filter_dict is not None:
+            payload["filter_dict"] = filter_dict
+        if return_properties is not None:
+            payload["return_properties"] = return_properties
+        if sort_by is not None:
+            payload["sort_by"] = sort_by
+            payload["ascending"] = ascending
+        return self._request("POST", "/api/v1/search/sorted_search", payload)
+
+    def pattern_search(
+        self,
+        path_pattern: list[list[Any]],
+        return_vars: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {
+            "path_pattern": path_pattern,
+        }
+        if return_vars is not None:
+            payload["return_vars"] = self._normalize_return_vars(return_vars)
+        return self._request("POST", "/api/v1/search/pattern_search", payload)
+
+    def property_info_search(
+        self,
+        element_class: str,
+        element_type: str,
+        element_uuid: str,
+    ) -> dict[str, Any]:
+        result = self._request(
+            "POST",
+            "/api/v1/search/property_info_search",
+            {
+                "element_class": element_class,
+                "element_type": element_type,
+                "element_uuid": element_uuid,
+            },
+        )
+        if result and isinstance(result[0], dict):
+            return result[0].get("properties", {})
+        return {}
+
     def get_entity_schema(self, entity_type: str) -> dict[str, Any]:
         examples = self.property_filter(
             element_class=entity_type,
@@ -101,3 +216,16 @@ class GraphConnector:
             get_all_properties=True,
         )
         return results[:limit]
+
+    def close(self) -> None:
+        return None
+
+    @staticmethod
+    def _normalize_return_vars(return_vars: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for name in return_vars:
+            if name.startswith("var") and name[3:].isdigit():
+                normalized.append(chr(97 + int(name[3:])))
+            else:
+                normalized.append(name)
+        return normalized

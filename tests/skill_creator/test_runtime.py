@@ -145,6 +145,24 @@ def test_runtime_graph_methods_delegate_to_connector():
         def property_filter(self, element_class, element_type, filter_dict, *, get_all_properties=False):
             return [{"element_class": element_class, "get_all_properties": get_all_properties, "filter_dict": filter_dict}]
 
+        def property_info_search(self, element_class, element_type, element_uuid):
+            return {"element_class": element_class, "element_uuid": element_uuid}
+
+        def hop_search(self, uuid, hop_num, accurate_flag=False):
+            return [{"uuid": uuid, "hop_num": hop_num, "accurate_flag": accurate_flag}]
+
+        def count_search(self, element_class, element_type, filter_dict):
+            return 3
+
+        def aggregate_search(self, element_class, element_type, target_property, agg_func, filter_dict):
+            return {"agg_func": agg_func, "target_property": target_property}
+
+        def sorted_search(self, element_class, element_type, filter_dict=None, return_properties=None, sort_by=None, ascending=True):
+            return [{"sort_by": sort_by, "ascending": ascending, "return_properties": return_properties}]
+
+        def pattern_search(self, path_pattern, return_vars=None):
+            return [{"path_pattern": path_pattern, "return_vars": return_vars}]
+
     runtime._graph_connector = StubGraphConnector()
 
     assert runtime.graph_get_object_types() == ["Organ", "Person"]
@@ -152,3 +170,9 @@ def test_runtime_graph_methods_delegate_to_connector():
     assert runtime.graph_get_entity_schema("Organ")["entity_type"] == "Organ"
     assert runtime.graph_query_examples("Organ", limit=2, filter_dict={"name": "demo"})[0]["limit"] == 2
     assert runtime.graph_property_filter("Organ", "NODE", {"name": "demo"}, get_all_properties=True)[0]["get_all_properties"] is True
+    assert runtime.graph_property_info("Organ", "NODE", "Organ_1")["element_uuid"] == "Organ_1"
+    assert runtime.graph_hop_search("Organ_1", 2, accurate_flag=True)[0]["accurate_flag"] is True
+    assert runtime.graph_count_search("Organ", "NODE", {}) == 3
+    assert runtime.graph_aggregate_search("Organ", "NODE", "amount", "COUNT", {})["agg_func"] == "COUNT"
+    assert runtime.graph_sorted_search("Organ", "NODE", sort_by="name")[0]["sort_by"] == "name"
+    assert runtime.graph_pattern_search([["Organ", {}]], return_vars=["a"])[0]["return_vars"] == ["a"]

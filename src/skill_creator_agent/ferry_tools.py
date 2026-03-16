@@ -132,3 +132,89 @@ def graph_property_filter(
         filter_dict,
         get_all_properties=get_all_properties,
     )
+
+
+def graph_property_info(
+    element_class: str,
+    element_type: str,
+    element_uuid: str,
+) -> dict[str, Any]:
+    """Get full property information for a specific graph element."""
+    return get_runtime_tools().graph_property_info(
+        element_class,
+        element_type,
+        element_uuid,
+    )
+
+
+def graph_hop_search(
+    uuid: str,
+    hop_num: int,
+    accurate_flag: bool = False,
+) -> list[dict[str, Any]]:
+    """Run a hop search from a starting graph node."""
+    return get_runtime_tools().graph_hop_search(
+        uuid,
+        hop_num,
+        accurate_flag=accurate_flag,
+    )
+
+
+def graph_count_search(
+    element_class: str,
+    element_type: str,
+    filter_dict: dict[str, Any],
+) -> int:
+    """Count graph elements that satisfy a filter."""
+    return get_runtime_tools().graph_count_search(
+        element_class,
+        element_type,
+        filter_dict,
+    )
+
+
+def graph_aggregate_search(
+    element_class: str,
+    element_type: str,
+    target_property: str,
+    agg_func: str,
+    filter_dict: dict[str, Any],
+) -> Any:
+    """Aggregate a graph property using COUNT/SUM/AVG/MIN/MAX."""
+    return get_runtime_tools().graph_aggregate_search(
+        element_class,
+        element_type,
+        target_property,
+        agg_func,
+        filter_dict,
+    )
+
+
+def graph_sorted_search(
+    element_class: str,
+    element_type: str,
+    filter_dict: dict[str, Any] | None = None,
+    return_properties: list[str] | None = None,
+    sort_by: str | None = None,
+    ascending: bool = True,
+) -> list[dict[str, Any]]:
+    """Return graph query results with server-side sorting."""
+    return get_runtime_tools().graph_sorted_search(
+        element_class,
+        element_type,
+        filter_dict=filter_dict,
+        return_properties=return_properties,
+        sort_by=sort_by,
+        ascending=ascending,
+    )
+
+
+def graph_pattern_search(
+    path_pattern: list[list[Any]],
+    return_vars: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Run a pattern search against the graph service."""
+    return get_runtime_tools().graph_pattern_search(
+        path_pattern,
+        return_vars=return_vars,
+    )

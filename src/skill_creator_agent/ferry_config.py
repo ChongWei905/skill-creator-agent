@@ -94,6 +94,36 @@ DEFAULT_GRAPH_TOOLS: list[dict[str, Any]] = [
         "function": "graph_property_filter",
         "module": "skill_creator_agent.ferry_tools",
     },
+    {
+        "name": "graph_property_info",
+        "function": "graph_property_info",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_hop_search",
+        "function": "graph_hop_search",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_count_search",
+        "function": "graph_count_search",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_aggregate_search",
+        "function": "graph_aggregate_search",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_sorted_search",
+        "function": "graph_sorted_search",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_pattern_search",
+        "function": "graph_pattern_search",
+        "module": "skill_creator_agent.ferry_tools",
+    },
 ]
 
 
