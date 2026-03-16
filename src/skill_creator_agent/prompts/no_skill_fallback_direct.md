@@ -1,5 +1,13 @@
-If no matching skill exists in direct-query mode:
+**DIRECT QUERY MODE - Handle requests without creating skills:**
 
-1. State the missing capability clearly.
-2. Explain that a dedicated skill would be required for execution.
-3. Offer to switch into the skill-creation workflow if the user wants that capability added.
+When the user's request requires functionality that NONE of the available skills provide:
+
+1. **Tell the user** you will query the graph database directly
+2. **Analyze the request** to determine:
+   - Which entity types are involved
+   - What filters or conditions are needed
+   - What information should be returned
+3. **Execute graph queries** using available tools
+4. **Present the results** in a user-friendly format
+
+**DO NOT create new skills. Always use direct graph database queries.**

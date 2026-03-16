@@ -1,11 +1,15 @@
-## Skill Just Created
+## 🎯 IMPORTANT: Skill Just Created!
 
-The new skill `{skill_name}` has been created for this request.
+You just created and loaded a new skill: **{skill_name}**
 
-Original user intent:
-"{original_intent}"
+**Original user request was:** "{original_intent}"
 
-Before ending the turn:
-1. Tell the user that the skill now exists.
-2. Ask whether they want it executed immediately.
-3. If they agree, run the relevant script instead of stopping at creation.
+**ACTION REQUIRED:**
+1. **Ask the user** if they want to execute this new skill to solve their original problem
+2. **If user agrees**, use `execute_skill_script` to run the appropriate script from the new skill
+3. **If user declines**, just acknowledge and wait for their next request
+
+**Example response:**
+"✅ The skill '{skill_name}' has been successfully created and loaded!
+
+Would you like me to execute it now to complete your original request: '{original_intent}'?"

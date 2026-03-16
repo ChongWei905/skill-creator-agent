@@ -61,9 +61,9 @@ def test_runtime_builds_system_prompt_with_skill_context_and_reminder():
     assert "skill-creator-smoke" in prompt
     assert "Create a smoke-test skill" in prompt
     assert "Available Skills" in prompt
-    assert "Skill Creation Workflow" in prompt
-    assert "Turn A: only explain that no matching skill exists" in prompt
-    assert "STOP HERE. Wait for the user's explicit approval." in prompt
+    assert "## ⚠️ CRITICAL: SKILL.md Format Requirements" in prompt
+    assert "## 🎯 IMPORTANT: Skill Just Created!" in prompt
+    assert "## Skill Creation Workflow (MUST follow ALL steps in order)" in prompt
 
 
 def test_runtime_builds_direct_query_prompt_with_direct_fallback():
@@ -77,8 +77,8 @@ def test_runtime_builds_direct_query_prompt_with_direct_fallback():
 
     prompt = runtime.build_system_prompt(direct_query=True)
 
-    assert "direct-query mode" in prompt
-    assert "dedicated skill would be required" in prompt
+    assert "## ⚠️ DIRECT QUERY MODE - NO SKILL CREATION" in prompt
+    assert "DO NOT create new skills. Always use direct graph database queries." in prompt
 
 
 def test_runtime_creates_skill_scaffold_and_reloads_it(tmp_path):

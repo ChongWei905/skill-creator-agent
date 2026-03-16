@@ -1,14 +1,31 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from skill_creator_agent.prompts import (
+    GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,
+    NO_SKILL_FALLBACK_DIRECT,
     SKILL_CREATION_WORKFLOW,
+    SKILL_EXECUTION_REMINDER,
     SYSTEM_PROMPT_BASE,
+    SYSTEM_PROMPT_DIRECT_QUERY,
     available_prompts,
     load_prompt,
     prompt_path,
+)
+
+WORKFLOW_SVC_PROMPTS = Path("/Users/weichong/Documents/new_working_area/workflow-svc/prompts")
+PROMPT_NAMES = (
+    GRAPH_DB_INSTRUCTION,
+    NO_SKILL_FALLBACK,
+    NO_SKILL_FALLBACK_DIRECT,
+    SKILL_CREATION_WORKFLOW,
+    SKILL_EXECUTION_REMINDER,
+    SYSTEM_PROMPT_BASE,
+    SYSTEM_PROMPT_DIRECT_QUERY,
 )
 
 
@@ -38,11 +55,11 @@ def test_prompt_loader_raises_for_unknown_prompt():
         prompt_path("does_not_exist")
 
 
-def test_skill_creation_workflow_keeps_user_approval_gates():
-    content = load_prompt(SKILL_CREATION_WORKFLOW)
+def test_prompt_markdown_matches_workflow_svc_sources():
+    if not WORKFLOW_SVC_PROMPTS.exists():
+        pytest.skip("workflow-svc prompt sources are not available in this environment")
 
-    assert "## Step 1: Confirm Skill Creation Need" in content
-    assert "## Step 2: Gather Reference Documentation" in content
-    assert "## Step 4: Present Execution Plan For Approval" in content
-    assert content.count("STOP HERE. Wait for the user's response.") == 2
-    assert "STOP HERE. Wait for the user's explicit approval." in content
+    for prompt_name in PROMPT_NAMES:
+        current = prompt_path(prompt_name).read_text(encoding="utf-8")
+        original = (WORKFLOW_SVC_PROMPTS / f"{prompt_name}.md").read_text(encoding="utf-8")
+        assert current == original, prompt_name
