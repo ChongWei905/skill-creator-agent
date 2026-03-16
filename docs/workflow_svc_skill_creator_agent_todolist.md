@@ -236,28 +236,47 @@ cd /Users/weichong/Documents/new_working_area/ferry
 
 ## Next Stage
 
-下一阶段建议按下面顺序推进：
+当前已完成：
 
-1. 创建能力闭环
-   - 为 `skill_creator_agent` 增加“创建新 skill”的 service/runtime 接口
-   - 最少支持：创建 skill 目录、写入 `SKILL.md`、写入 `scripts/`、reload 新 skill
+1. 创建能力闭环的基础版本
+   - `SkillCreatorRuntime.create_skill_scaffold(...)` 已支持创建 skill 目录、写入 `SKILL.md`、初始化 `scripts/`
+   - `reload_skill(...)` 已可重新加载新建 skill
+
+2. `ferry` bridge 的最小接入
+   - 已新增 `skill_creator_agent.ferry_tools`，把 skill runtime 能力暴露成 `ferry` 可注册的 `local_functions`
+   - 已新增 `skill_creator_agent.ferry_config`，可生成兼容 `DataAgent/FlexAgent` 的配置
+   - `SkillCreatorAgent.create_ferry_agent(...)` 已能通过 `ferry.interface.sdk.agent.DataAgent.from_config(...)` 建立实例
+
+3. 创建链路测试
+   - 已覆盖新建 scaffold、reload、以及 `ferry.actions.tools.manager.ToolManager` 注册调用自定义工具的集成测试
+
+当前测试基线：
+- `uv run python -m pytest tests/skill_creator -q`
+- 结果：`22 passed`
+
+剩余阶段建议按下面顺序推进：
+
+1. 强化创建链路
+   - 为 scaffold 结果补充更细的目录约束和错误信息
+   - 增加对 `references/`、`assets/`、可选 `agents/openai.yaml` 的生成支持
+   - 增加非法 script 路径、非法 frontmatter 的更细测试
 
 2. 区分运行目录与测试目录
    - 真实运行默认使用项目根目录 `skills/`
    - 测试和 smoke fixture 继续使用 `src/skill_creator_agent/fixtures/minimal_skills/`
    - 为新创建的 skills 增加基本目录契约校验
 
-3. 接入 LLM 驱动的最小 loop
-   - 不回到 `ferry/agents` 中实现
-   - 在当前独立项目里先做一个 service 级 loop：
-     - 列出 skills
-     - 读取 `SKILL.md`
-     - 读取/执行脚本
-     - 新建 skill 后 reload
+3. 接入真实 LLM 驱动 loop
+   - 使用 `SkillCreatorAgent.create_ferry_agent(...)` 生成的 `DataAgent`
+   - 用真实模型配置手动验证：
+     - skills 元数据注入
+     - `create_skill_scaffold -> write_file/apply_patch -> reload_skill -> execute_skill_script`
+     - 多轮对话下的新 skill 是否可继续执行
 
-4. 补创建链路测试
-   - 新建 skill 成功
-   - 非法 frontmatter 拒绝
+4. 补更高层的集成测试
+   - `DataAgent.from_config(...)` 级别的配置装配测试
+   - 真实模型可用时再补对话级 smoke
+   - graph 相关能力继续保持可选，不作为主链前提
    - 脚本写入后可被 loader 发现
    - reload 后新 skill 可见
 

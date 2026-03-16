@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from skill_creator_agent.runtime import SkillCreatorRuntime
 from skill_creator_agent.settings import DEFAULT_SKILLS_ROOT
 
@@ -75,3 +77,41 @@ def test_runtime_builds_direct_query_prompt_with_direct_fallback():
 
     assert "direct-query mode" in prompt
     assert "dedicated skill would be required" in prompt
+
+
+def test_runtime_creates_skill_scaffold_and_reloads_it(tmp_path):
+    runtime = SkillCreatorRuntime.from_config(
+        {
+            "SKILL_CREATOR": {
+                "skills_root": str(tmp_path),
+            }
+        }
+    )
+
+    scaffold = runtime.create_skill_scaffold(
+        "generated-skill",
+        "Generated during tests.",
+        body="# Generated Skill\n\n1. Run the script.",
+        script_files={"run.sh": "#!/usr/bin/env bash\necho generated\n"},
+    )
+    skill = runtime.reload_skill("generated-skill")
+
+    assert scaffold["skill_name"] == "generated-skill"
+    assert (tmp_path / "generated-skill" / "SKILL.md").exists()
+    assert skill.name == "generated-skill"
+    assert skill.list_script_names() == ["run"]
+
+
+def test_runtime_rejects_duplicate_skill_scaffold(tmp_path):
+    runtime = SkillCreatorRuntime.from_config(
+        {
+            "SKILL_CREATOR": {
+                "skills_root": str(tmp_path),
+            }
+        }
+    )
+
+    runtime.create_skill_scaffold("duplicate-skill", "Created once.")
+
+    with pytest.raises(FileExistsError):
+        runtime.create_skill_scaffold("duplicate-skill", "Created twice.")

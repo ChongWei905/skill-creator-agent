@@ -70,6 +70,9 @@ class SkillLoader:
         assert skill is not None
         return skill
 
+    def validate_frontmatter(self, frontmatter: dict, skill_dir: str | Path) -> None:
+        self._validate_frontmatter(frontmatter, Path(skill_dir).expanduser().resolve())
+
     def _parse_skill(self, skill_md_path: Path) -> Skill:
         frontmatter, body = self._split_frontmatter(skill_md_path.read_text(encoding="utf-8"))
         skill_dir = skill_md_path.parent
