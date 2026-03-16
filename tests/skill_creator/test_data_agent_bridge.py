@@ -4,6 +4,7 @@ from ferry.core.cbb.base_agent import BaseAgent
 from ferry.core.flex.agent import FlexAgent
 from ferry.interface.sdk.agent import DataAgent
 
+from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     build_data_agent_session,
     extract_last_message_text,
@@ -47,3 +48,11 @@ def test_build_data_agent_session_materializes_runtime_bridge(monkeypatch, tmp_p
 def test_extract_last_message_text_handles_dict_and_fallback():
     assert extract_last_message_text({"messages": [type("Msg", (), {"content": "done"})()]}) == "done"
     assert extract_last_message_text({"final_answer": "fallback"}) == "fallback"
+
+
+def test_cli_parse_args_defaults():
+    args = parse_args([])
+
+    assert args.graph_base_url == "http://127.0.0.1:8000"
+    assert args.turn == []
+    assert args.disable_graph is False

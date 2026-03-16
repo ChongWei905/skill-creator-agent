@@ -12,6 +12,9 @@ dependencies = [
   "PyYAML>=6.0",
 ]
 
+[project.scripts]
+skill-creator-chat = "skill_creator_agent.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0",
