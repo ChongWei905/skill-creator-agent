@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skill-creator-agent"
+version = "0.1.0"
+description = "Standalone skill_creator runtime extracted from Ferry."
+requires-python = ">=3.11"
+dependencies = [
+  "ferry",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0",
+]
+
+[tool.uv.sources]
+ferry = { path = "../ferry", editable = true }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

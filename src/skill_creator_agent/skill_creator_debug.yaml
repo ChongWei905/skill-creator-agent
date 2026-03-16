@@ -1,0 +1,31 @@
+AGENT_CONFIG:
+  name: "skill_creator_debug"
+  backend: "langgraph"
+  type: "react"
+  agent_type: "skill_creator"
+  debug: true
+
+SKILL_CREATOR:
+  skills_root: "fixtures/minimal_skills"
+  graph_enabled: false
+
+TOOLS:
+  local_functions:
+    - name: "bash"
+      function: "bash"
+      module: "ferry.actions.tools.local_tool.tools"
+    - name: "read_file"
+      function: "read_file"
+      module: "ferry.actions.tools.local_tool.tools"
+    - name: "write_file"
+      function: "write_file"
+      module: "ferry.actions.tools.local_tool.tools"
+    - name: "apply_patch"
+      function: "apply_patch"
+      module: "ferry.actions.tools.local_tool.tools"
+  skills:
+    - name: "skill-creator-smoke"
+      path: "fixtures/minimal_skills/skill-creator-smoke"
+      category: "workflow"
+      description: "Minimal fixture skill used to validate skill_creator migration wiring."
+      tags: ["skill-creator", "smoke"]
