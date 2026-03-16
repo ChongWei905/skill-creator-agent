@@ -89,3 +89,46 @@ def create_skill_scaffold(
         script_files=script_files,
         overwrite=overwrite,
     )
+
+
+def graph_get_object_types() -> list[str]:
+    """Get all graph object types currently exposed by the graph service."""
+    return get_runtime_tools().graph_get_object_types()
+
+
+def graph_get_object_relations() -> list[str]:
+    """Get all graph relations currently exposed by the graph service."""
+    return get_runtime_tools().graph_get_object_relations()
+
+
+def graph_get_entity_schema(entity_type: str) -> dict[str, Any]:
+    """Get a sample schema for a graph entity type."""
+    return get_runtime_tools().graph_get_entity_schema(entity_type)
+
+
+def graph_query_examples(
+    entity_type: str,
+    limit: int = 5,
+    filter_dict: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Query sample graph instances for a given entity type."""
+    return get_runtime_tools().graph_query_examples(
+        entity_type,
+        limit=limit,
+        filter_dict=filter_dict,
+    )
+
+
+def graph_property_filter(
+    element_class: str,
+    element_type: str,
+    filter_dict: dict[str, Any],
+    get_all_properties: bool = False,
+) -> list[dict[str, Any]]:
+    """Filter graph elements by property conditions."""
+    return get_runtime_tools().graph_property_filter(
+        element_class,
+        element_type,
+        filter_dict,
+        get_all_properties=get_all_properties,
+    )

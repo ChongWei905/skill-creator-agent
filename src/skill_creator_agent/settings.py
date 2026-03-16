@@ -8,25 +8,37 @@ from typing import Any, Mapping
 from skill_creator_agent.paths import project_path, resolve_local_path
 
 ENV_SKILLS_ROOT = "SKILL_CREATOR_SKILLS_ROOT"
+ENV_GRAPH_BASE_URL = "SKILL_CREATOR_GRAPH_BASE_URL"
+ENV_GRAPH_TIMEOUT = "SKILL_CREATOR_GRAPH_TIMEOUT"
 DEFAULT_SKILLS_ROOT = project_path("skills")
+DEFAULT_GRAPH_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_GRAPH_TIMEOUT = 30
 
 
 @dataclass(frozen=True)
 class SkillCreatorSettings:
     skills_root: Path
     graph_enabled: bool = False
+    graph_base_url: str = DEFAULT_GRAPH_BASE_URL
+    graph_timeout: int = DEFAULT_GRAPH_TIMEOUT
     source: str = "default"
 
 
 def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> SkillCreatorSettings:
     section = _extract_section(config)
     graph_enabled = _as_bool(section.get("graph_enabled"), default=False)
+    graph_base_url = str(section.get("graph_base_url") or DEFAULT_GRAPH_BASE_URL).rstrip("/")
+    graph_timeout = _as_int(section.get("graph_timeout"), default=DEFAULT_GRAPH_TIMEOUT)
 
     env_root = os.getenv(ENV_SKILLS_ROOT)
+    env_graph_base_url = os.getenv(ENV_GRAPH_BASE_URL)
+    env_graph_timeout = os.getenv(ENV_GRAPH_TIMEOUT)
     if env_root:
         return SkillCreatorSettings(
             skills_root=_normalize_skills_root(env_root),
             graph_enabled=graph_enabled,
+            graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+            graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
             source="env",
         )
 
@@ -35,12 +47,16 @@ def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> S
         return SkillCreatorSettings(
             skills_root=_normalize_skills_root(config_root),
             graph_enabled=graph_enabled,
+            graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+            graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
             source="config",
         )
 
     return SkillCreatorSettings(
         skills_root=DEFAULT_SKILLS_ROOT.resolve(),
         graph_enabled=graph_enabled,
+        graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+        graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
         source="default",
     )
 
@@ -58,6 +74,10 @@ def _extract_section(config: Mapping[str, Any] | None) -> dict[str, Any]:
         section["skills_root"] = config.get("SKILL_CREATOR.skills_root")
     if "SKILL_CREATOR.graph_enabled" in config and "graph_enabled" not in section:
         section["graph_enabled"] = config.get("SKILL_CREATOR.graph_enabled")
+    if "SKILL_CREATOR.graph_base_url" in config and "graph_base_url" not in section:
+        section["graph_base_url"] = config.get("SKILL_CREATOR.graph_base_url")
+    if "SKILL_CREATOR.graph_timeout" in config and "graph_timeout" not in section:
+        section["graph_timeout"] = config.get("SKILL_CREATOR.graph_timeout")
     return section
 
 
@@ -80,3 +100,19 @@ def _as_bool(value: Any, *, default: bool) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return bool(value)
+
+
+def _as_int(value: Any, *, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

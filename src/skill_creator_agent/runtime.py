@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 import yaml
 
+from skill_creator_agent.connectors import GraphConnector
 from skill_creator_agent.loaders import SkillLoader
 from skill_creator_agent.models import Skill
 from skill_creator_agent.prompts import (
@@ -25,6 +26,7 @@ class SkillCreatorRuntime:
         self.settings = settings
         self.loader = loader or SkillLoader(settings.skills_root)
         self._skills_loaded = False
+        self._graph_connector: GraphConnector | None = None
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None = None) -> "SkillCreatorRuntime":
@@ -85,6 +87,8 @@ class SkillCreatorRuntime:
     ) -> dict[str, Any]:
         script = self._get_script(name, script_name)
         normalized_cwd = Path(cwd).expanduser().resolve() if cwd is not None else None
+        if graph_db_config is None and self.settings.graph_enabled:
+            graph_db_config = self.graph_db_config()
         exit_code, stdout, stderr = script.execute(
             args=args,
             cwd=normalized_cwd,
@@ -99,6 +103,59 @@ class SkillCreatorRuntime:
             "stdout": stdout,
             "stderr": stderr,
         }
+
+    def graph_db_config(self) -> dict[str, Any]:
+        return {
+            "base_url": self.settings.graph_base_url,
+            "timeout": self.settings.graph_timeout,
+        }
+
+    def get_graph_connector(self) -> GraphConnector:
+        if not self.settings.graph_enabled:
+            raise RuntimeError("Graph access is disabled for this runtime.")
+        if self._graph_connector is None:
+            self._graph_connector = GraphConnector(
+                base_url=self.settings.graph_base_url,
+                timeout=self.settings.graph_timeout,
+            )
+        return self._graph_connector
+
+    def graph_get_object_types(self) -> list[str]:
+        return self.get_graph_connector().get_object_types()
+
+    def graph_get_object_relations(self) -> list[str]:
+        return self.get_graph_connector().get_object_relations()
+
+    def graph_get_entity_schema(self, entity_type: str) -> dict[str, Any]:
+        return self.get_graph_connector().get_entity_schema(entity_type)
+
+    def graph_query_examples(
+        self,
+        entity_type: str,
+        *,
+        limit: int = 5,
+        filter_dict: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.get_graph_connector().query_examples(
+            entity_type,
+            limit=limit,
+            filter_dict=filter_dict,
+        )
+
+    def graph_property_filter(
+        self,
+        element_class: str,
+        element_type: str,
+        filter_dict: dict[str, Any],
+        *,
+        get_all_properties: bool = False,
+    ) -> list[dict[str, Any]]:
+        return self.get_graph_connector().property_filter(
+            element_class,
+            element_type,
+            filter_dict,
+            get_all_properties=get_all_properties,
+        )
 
     def reload_skill(self, name: str) -> Skill:
         self.load_skills()

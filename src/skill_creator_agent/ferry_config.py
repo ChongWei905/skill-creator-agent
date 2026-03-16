@@ -68,6 +68,34 @@ DEFAULT_RUNTIME_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+DEFAULT_GRAPH_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "graph_get_object_types",
+        "function": "graph_get_object_types",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_get_object_relations",
+        "function": "graph_get_object_relations",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_get_entity_schema",
+        "function": "graph_get_entity_schema",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_query_examples",
+        "function": "graph_query_examples",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+    {
+        "name": "graph_property_filter",
+        "function": "graph_property_filter",
+        "module": "skill_creator_agent.ferry_tools",
+    },
+]
+
 
 def build_ferry_config(
     config: Mapping[str, Any] | None,
@@ -145,13 +173,15 @@ def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping
         "TOOLS": {
             "local_functions": [
                 *DEFAULT_FERRY_FILE_TOOLS,
-                *DEFAULT_RUNTIME_TOOLS,
+                *_build_runtime_tools(runtime),
             ],
             "skills": runtime.build_ferry_skill_registry(),
         },
         "SKILL_CREATOR": {
             "skills_root": str(runtime.settings.skills_root),
             "graph_enabled": runtime.settings.graph_enabled,
+            "graph_base_url": runtime.settings.graph_base_url,
+            "graph_timeout": runtime.settings.graph_timeout,
         },
     }
 
@@ -184,6 +214,8 @@ def _normalize_ferry_config(config: dict[str, Any], *, runtime: SkillCreatorRunt
     skill_creator_cfg = dict(normalized.get("SKILL_CREATOR", {}))
     skill_creator_cfg["skills_root"] = str(runtime.settings.skills_root)
     skill_creator_cfg["graph_enabled"] = runtime.settings.graph_enabled
+    skill_creator_cfg["graph_base_url"] = runtime.settings.graph_base_url
+    skill_creator_cfg["graph_timeout"] = runtime.settings.graph_timeout
     normalized["SKILL_CREATOR"] = skill_creator_cfg
 
     workspace_cfg = dict(normalized.get("WORKSPACE", {}))
@@ -211,6 +243,13 @@ def _dedupe_local_functions(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
         seen.add(key)
         deduped.append(tool)
     return deduped
+
+
+def _build_runtime_tools(runtime: SkillCreatorRuntime) -> list[dict[str, Any]]:
+    tools = list(DEFAULT_RUNTIME_TOOLS)
+    if runtime.settings.graph_enabled:
+        tools.extend(DEFAULT_GRAPH_TOOLS)
+    return tools
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:

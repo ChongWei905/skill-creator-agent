@@ -51,6 +51,7 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch)
             },
             "SKILL_CREATOR": {
                 "skills_root": "fixtures/minimal_skills",
+                "graph_enabled": True,
             },
         }
     )
@@ -62,7 +63,9 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch)
     assert config["ACTOR_LOOP"][0]["chat_model"]["name"] == "demo_chat"
     assert "create_skill_scaffold" in local_tool_names
     assert "read_skill_content" in local_tool_names
+    assert "graph_get_object_types" in local_tool_names
     assert config["TOOLS"]["skills"][0]["name"] == "skill-creator-smoke"
+    assert config["SKILL_CREATOR"]["graph_base_url"] == "http://127.0.0.1:8000"
 
 
 def test_skill_creator_agent_materializes_ferry_config(monkeypatch, tmp_path):
