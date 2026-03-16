@@ -114,7 +114,7 @@ def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping
                 "provider": "openai",
                 "model_type": "chat",
                 "params": {
-                    "model": "gpt-4o-mini",
+                    "model": "deepseek-chat",
                 },
             }
         },
