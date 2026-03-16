@@ -226,13 +226,44 @@ cd /Users/weichong/Documents/new_working_area/ferry
 - `SKILL_CREATOR.skills_root` 的优先级为：
   - YAML 显式配置
   - 环境变量 `SKILL_CREATOR_SKILLS_ROOT`
-  - repo 内 fixture 根目录
+  - 项目根目录 `skills/`
 - `TOOLS.skills` 只继续承担 prompt 注入用的 skill 元数据，不作为 `skill_creator` runtime 的唯一事实来源
 - 共享 skill 目录的最小契约保持为：
   - skill 目录名与 frontmatter `name` 一致
   - 必有 `SKILL.md`
   - `scripts/` 下只放可执行脚本资源
   - frontmatter 至少保留 `name`、`description`
+
+## Next Stage
+
+下一阶段建议按下面顺序推进：
+
+1. 创建能力闭环
+   - 为 `skill_creator_agent` 增加“创建新 skill”的 service/runtime 接口
+   - 最少支持：创建 skill 目录、写入 `SKILL.md`、写入 `scripts/`、reload 新 skill
+
+2. 区分运行目录与测试目录
+   - 真实运行默认使用项目根目录 `skills/`
+   - 测试和 smoke fixture 继续使用 `src/skill_creator_agent/fixtures/minimal_skills/`
+   - 为新创建的 skills 增加基本目录契约校验
+
+3. 接入 LLM 驱动的最小 loop
+   - 不回到 `ferry/agents` 中实现
+   - 在当前独立项目里先做一个 service 级 loop：
+     - 列出 skills
+     - 读取 `SKILL.md`
+     - 读取/执行脚本
+     - 新建 skill 后 reload
+
+4. 补创建链路测试
+   - 新建 skill 成功
+   - 非法 frontmatter 拒绝
+   - 脚本写入后可被 loader 发现
+   - reload 后新 skill 可见
+
+5. 最后再考虑如何与上层系统集成
+   - 保持当前仓库是独立 package
+   - 通过依赖 `ferry` 的方式被上层项目引用，而不是反向把代码塞回 `ferry`
 
 ---
 

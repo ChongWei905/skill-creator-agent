@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from skill_creator_agent.paths import resolve_local_path
 from skill_creator_agent.loaders import SkillLoader
-from skill_creator_agent.settings import DEFAULT_SKILLS_ROOT
 
 
 def test_skill_loader_loads_fixture_skill():
-    loader = SkillLoader(DEFAULT_SKILLS_ROOT)
+    loader = SkillLoader(resolve_local_path("fixtures/minimal_skills"))
 
     skills = loader.load_all()
     skill = skills["skill-creator-smoke"]

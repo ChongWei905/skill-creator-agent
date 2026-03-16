@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from skill_creator_agent.paths import package_path, resolve_local_path
+from skill_creator_agent.paths import project_path, resolve_local_path
 
 ENV_SKILLS_ROOT = "SKILL_CREATOR_SKILLS_ROOT"
-DEFAULT_SKILLS_ROOT = package_path("fixtures", "minimal_skills")
+DEFAULT_SKILLS_ROOT = project_path("skills")
 
 
 @dataclass(frozen=True)
