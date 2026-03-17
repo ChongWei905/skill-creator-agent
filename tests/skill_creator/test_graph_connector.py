@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from skill_creator_agent.connectors import GraphConnector
 
 
@@ -68,7 +70,7 @@ def test_graph_connector_count_search_extracts_integer():
 def test_graph_connector_property_filter_normalizes_generic_element_target():
     connector = RecordingGraphConnector()
 
-    connector.property_filter("entity", "Person", {"逾期多次标识": "是"})
+    connector.property_filter("entity", "Person", {"逾期多次标识": "= '是'"})
 
     _, _, payload = connector.calls[-1]
     assert payload["element_class"] == "Person"
@@ -83,3 +85,30 @@ def test_graph_connector_sorted_search_accepts_limit_passthrough():
     assert result == []
     _, _, payload = connector.calls[-1]
     assert payload["sort_by"] == "name"
+
+
+def test_graph_connector_property_filter_normalizes_case_insensitive_or_contains():
+    connector = RecordingGraphConnector()
+
+    connector.property_filter(
+        "Organ",
+        "NODE",
+        {"name": "contains '深圳' or contains '罗湖'"},
+    )
+
+    _, _, payload = connector.calls[-1]
+    assert payload["filter_dict"]["name"] == "CONTAINS '深圳' OR CONTAINS '罗湖'"
+
+
+def test_graph_connector_property_filter_rejects_invalid_expression():
+    connector = RecordingGraphConnector()
+
+    with pytest.raises(ValueError):
+        connector.property_filter("Organ", "NODE", {"name": "深圳"})
+
+
+def test_graph_connector_property_filter_rejects_and_inside_single_expression():
+    connector = RecordingGraphConnector()
+
+    with pytest.raises(ValueError):
+        connector.property_filter("Organ", "NODE", {"name": "CONTAINS '深圳' AND CONTAINS '罗湖'"})

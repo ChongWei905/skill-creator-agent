@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from typing import Any
 from urllib import error, request
@@ -55,13 +56,14 @@ class GraphConnector:
         get_all_properties: bool = False,
     ) -> list[dict[str, Any]]:
         element_class, element_type = self._normalize_element_target(element_class, element_type)
+        normalized_filter_dict = self._normalize_filter_dict(filter_dict)
         output_raw = self._request(
             "POST",
             "/api/v1/search/property_filter",
             {
                 "element_class": element_class,
                 "element_type": element_type,
-                "filter_dict": filter_dict or {},
+                "filter_dict": normalized_filter_dict,
                 "get_all_properties": get_all_properties,
             },
         )
@@ -92,13 +94,14 @@ class GraphConnector:
         filter_dict: dict[str, Any] | None = None,
     ) -> int:
         element_class, element_type = self._normalize_element_target(element_class, element_type)
+        normalized_filter_dict = self._normalize_filter_dict(filter_dict)
         result = self._request(
             "POST",
             "/api/v1/search/count_search",
             {
                 "element_class": element_class,
                 "element_type": element_type,
-                "filter_dict": filter_dict or {},
+                "filter_dict": normalized_filter_dict,
             },
         )
         if result and isinstance(result[0], dict):
@@ -116,6 +119,7 @@ class GraphConnector:
         if not target_property or not agg_func:
             raise ValueError("target_property and agg_func are required")
         element_class, element_type = self._normalize_element_target(element_class, element_type)
+        normalized_filter_dict = self._normalize_filter_dict(filter_dict)
         result = self._request(
             "POST",
             "/api/v1/search/aggregate_search",
@@ -124,7 +128,7 @@ class GraphConnector:
                 "element_type": element_type,
                 "target_property": target_property,
                 "agg": agg_func,
-                "filter_dict": filter_dict or {},
+                "filter_dict": normalized_filter_dict,
             },
         )
         if result and isinstance(result[0], dict):
@@ -146,12 +150,13 @@ class GraphConnector:
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         element_class, element_type = self._normalize_element_target(element_class, element_type)
+        normalized_filter_dict = self._normalize_filter_dict(filter_dict)
         payload: dict[str, Any] = {
             "element_class": element_class,
             "element_type": element_type,
         }
-        if filter_dict is not None:
-            payload["filter_dict"] = filter_dict
+        if normalized_filter_dict:
+            payload["filter_dict"] = normalized_filter_dict
         if return_properties is not None:
             payload["return_properties"] = return_properties
         if sort_by is not None:
@@ -242,6 +247,59 @@ class GraphConnector:
             else:
                 normalized.append(name)
         return normalized
+
+    @classmethod
+    def _normalize_filter_dict(cls, filter_dict: dict[str, Any] | None) -> dict[str, str]:
+        if not filter_dict:
+            return {}
+        normalized: dict[str, str] = {}
+        for prop_name, condition_expr in filter_dict.items():
+            if not isinstance(condition_expr, str):
+                raise ValueError(
+                    f"Invalid filter for '{prop_name}': filter expressions must be strings such as "
+                    "\"= '0400000012'\", \"> 0\", or \"CONTAINS '深圳'\"."
+                )
+            normalized[str(prop_name)] = cls._normalize_filter_expression(condition_expr)
+        return normalized
+
+    @classmethod
+    def _normalize_filter_expression(cls, condition_expr: str) -> str:
+        expr = condition_expr.strip()
+        if not expr:
+            raise ValueError("Filter expressions cannot be empty.")
+        if re.search(r"\bAND\b", expr, flags=re.IGNORECASE):
+            raise ValueError(
+                "A single property filter expression cannot contain AND. "
+                "Use separate filter_dict entries for different properties, and use OR only within one property."
+            )
+
+        parts = re.split(r"\s+OR\s+", expr, flags=re.IGNORECASE)
+        normalized_parts = [cls._normalize_filter_atom(part.strip()) for part in parts]
+        return " OR ".join(normalized_parts)
+
+    @staticmethod
+    def _normalize_filter_atom(atom: str) -> str:
+        if not atom:
+            raise ValueError("Filter expression parts cannot be empty.")
+
+        textual_prefixes = ["CONTAINS", "STARTS WITH", "ENDS WITH"]
+        upper_atom = atom.upper()
+        for prefix in textual_prefixes:
+            if upper_atom.startswith(prefix):
+                suffix = atom[len(prefix) :].strip()
+                if not suffix:
+                    raise ValueError(f"Filter expression '{atom}' is missing a value after {prefix}.")
+                return f"{prefix} {suffix}"
+
+        if atom.startswith(("=", ">", "<")):
+            return atom
+
+        raise ValueError(
+            "Unsupported filter expression. Use strings like "
+            "\"= '0400000012'\", \"> 0\", \"< 100\", \"CONTAINS '深圳'\", "
+            "\"STARTS WITH '04'\", or \"ENDS WITH '30'\". "
+            "Use OR inside one property, for example \"CONTAINS '深圳' OR CONTAINS '罗湖'\"."
+        )
 
     @staticmethod
     def _normalize_element_target(element_class: str, element_type: str | None) -> tuple[str, str]:

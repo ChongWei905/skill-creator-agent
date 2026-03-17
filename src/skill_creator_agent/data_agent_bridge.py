@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
+from ferry.actions.tools import tool_manager
+from ferry.core.managers.llm_manager import llm_manager
 from ferry.interface.sdk.agent import DataAgent
 
 from skill_creator_agent.ferry_config import materialize_ferry_config
@@ -72,6 +74,7 @@ class DataAgentSession:
     workflow_stage: str = "idle"
     last_assistant_text: str = ""
     active_turn_stage: str = "discover_existing_skill"
+    user_goal: str = ""
 
     @property
     def output_path(self) -> Path:
@@ -79,6 +82,7 @@ class DataAgentSession:
 
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
         normalized = query.strip()
+        self._maybe_capture_user_goal(normalized)
         policy = self.resolve_turn_policy(normalized)
         self.data_agent = self._build_turn_data_agent(policy)
         initial_state = {
@@ -107,6 +111,7 @@ class DataAgentSession:
         self.workflow_stage = "idle"
         self.last_assistant_text = ""
         self.active_turn_stage = "discover_existing_skill"
+        self.user_goal = ""
         self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""))
 
     def resolve_turn_policy(self, query: str) -> StagePolicy:
@@ -119,7 +124,7 @@ class DataAgentSession:
             return _create_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
         if self.workflow_stage == "awaiting_execute_confirmation" and _is_affirmative(normalized):
             return _execute_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
-        return _discover_existing_skill_policy()
+        return _discover_existing_skill_policy(runtime=self.runtime)
 
     def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
         policy = self.resolve_turn_policy(query)
@@ -169,11 +174,12 @@ class DataAgentSession:
 
     def _build_turn_data_agent(self, policy: StagePolicy) -> DataAgent:
         rendered_path = self.ferry_config_path
+        _reset_ferry_singletons()
         materialize_ferry_config(
             self.source_config,
             runtime=self.runtime,
             output_path=rendered_path,
-            stage_instructions=policy.prompt_overlay,
+            stage_instructions=self._render_stage_prompt(policy),
             allowed_local_tool_names=policy.allowed_tool_names,
         )
         configure_runtime_tools(config=self.source_config, runtime=self.runtime)
@@ -186,9 +192,27 @@ class DataAgentSession:
         return build_ferry_config(
             self.source_config,
             runtime=self.runtime,
-            stage_instructions=policy.prompt_overlay,
+            stage_instructions=self._render_stage_prompt(policy),
             allowed_local_tool_names=policy.allowed_tool_names,
         )
+
+    def _render_stage_prompt(self, policy: StagePolicy) -> str:
+        if not self.user_goal:
+            return policy.prompt_overlay
+        return (
+            f"Original user goal: {self.user_goal}\n"
+            "Keep this original goal in scope for this turn even if the latest user reply is short.\n"
+            f"{policy.prompt_overlay}"
+        )
+
+    def _maybe_capture_user_goal(self, query: str) -> None:
+        if not query:
+            return
+        if self.next_run_id == 0 and not _is_short_control_reply(query):
+            self.user_goal = query
+            return
+        if self.workflow_stage == "idle" and not _is_short_control_reply(query):
+            self.user_goal = query
 
 
 def build_data_agent_session(
@@ -223,7 +247,8 @@ def build_data_agent_session(
         materialized_config_path = DEFAULT_MATERIALIZED_CONFIG_ROOT / f"{resolved_session_id}.yaml"
     rendered_path = Path(materialized_config_path).expanduser().resolve()
 
-    initial_policy = _discover_existing_skill_policy()
+    initial_policy = _discover_existing_skill_policy(runtime=runtime)
+    _reset_ferry_singletons()
     materialize_ferry_config(
         source_config,
         runtime=runtime,
@@ -296,14 +321,38 @@ def _new_session_id() -> str:
     return f"skill-creator-{uuid.uuid4().hex[:12]}"
 
 
-def _discover_existing_skill_policy() -> StagePolicy:
+def _reset_ferry_singletons() -> None:
+    tool_manager.reset_instance()
+    llm_manager.llm_cache.clear()
+
+
+def _discover_existing_skill_policy(*, runtime: SkillCreatorRuntime) -> StagePolicy:
+    available_skills = runtime.list_skills()
+    if not available_skills:
+        return StagePolicy(
+            name="discover_existing_skill",
+            prompt_overlay=(
+                "This turn is only for initial skill discovery and reuse. "
+                "There are currently zero registered skills in the runtime. "
+                "Do not call any skill inspection tools. "
+                "Do not inspect graph data. Do not create or modify any files in this turn. "
+                "Explain that no matching skill exists and ask only whether a new skill should be created. "
+                "Do not ask for reference documentation, schemas, business rules, examples, or risk definitions yet. "
+                "Do not bundle Step 2 questions into this response."
+            ),
+            allowed_tool_names=set(),
+        )
+
     return StagePolicy(
         name="discover_existing_skill",
         prompt_overlay=(
             "This turn is only for initial skill discovery and reuse. "
             "Inspect existing skills first. If an existing skill can solve the task, explain that choice and use it. "
-            "If no existing skill matches, stop after asking whether a new skill should be created. "
-            "Do not inspect graph data. Do not create or modify any files in this turn."
+            "Only inspect skill names that were returned by list_available_skills in this turn or already exist in the runtime registry. "
+            "Never invent skill names. "
+            "If no existing skill matches, stop after asking only whether a new skill should be created. "
+            "Do not ask for reference documentation, schemas, business rules, examples, or risk definitions yet. "
+            "Do not inspect graph data. Do not execute skill scripts. Do not create or modify any files in this turn."
         ),
         allowed_tool_names=set(SKILL_READ_TOOL_NAMES),
     )
@@ -313,9 +362,13 @@ def _ask_references_policy() -> StagePolicy:
     return StagePolicy(
         name="ask_references",
         prompt_overlay=(
-            "This turn is Step 2 only. Ask whether the user has reference documentation, schemas, examples, "
-            "sample commands, or business rules. Do not call any tools. Do not inspect graph data. "
-            "Do not create or modify any files."
+            "This turn is Step 2 only. The user has already confirmed that a new skill should be created. "
+            "Do not ask whether the skill should be created again. "
+            "Ask only for reference documentation, schemas, examples, sample commands, or business rules. "
+            "If no reference material exists, ask the user to explicitly say that none is available. "
+            "Do not call any tools. Do not inspect graph data. "
+            "Do not create or modify any files. "
+            "Keep the reply focused on this single documentation question."
         ),
         allowed_tool_names=set(),
     )
@@ -329,7 +382,7 @@ def _propose_plan_policy(*, graph_enabled: bool) -> StagePolicy:
         "Treat short answers such as '没有', '没有文档', or '没有文档支撑' as explicit confirmation that no reference documentation is available. "
         "Do not ask whether the user has documentation again. "
         "Instead, acknowledge the lack of documentation, inspect only the minimum graph/schema information required, "
-        "then present the planned skill behavior and wait for explicit approval. "
+        "then present the planned skill behavior and wait for explicit approval to create the skill. "
         "Do not create or modify any files in this turn."
     )
     if not graph_enabled:
@@ -398,6 +451,23 @@ def _is_affirmative(text: str) -> bool:
         "运行吧",
     }
     return normalized in positives or any(token in normalized for token in ["创建吧", "创建", "可以", "确认", "执行吧", "运行吧"])
+
+
+def _is_short_control_reply(text: str) -> bool:
+    normalized = text.strip().lower()
+    negatives = {
+        "no",
+        "n",
+        "没有",
+        "没有文档",
+        "没有文档支撑",
+        "无",
+        "不用",
+        "不需要",
+    }
+    if _is_affirmative(normalized):
+        return True
+    return normalized in negatives
 
 
 def _looks_like_create_confirmation(text: str) -> bool:

@@ -77,6 +77,7 @@ def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
 
     assert "[CURRENT WORKFLOW STAGE]" in config["SCENARIO"]["chat"]["instructions"]
     assert "Step 2 only" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Do not ask whether the skill should be created again." in config["SCENARIO"]["chat"]["instructions"]
     assert config["TOOLS"]["local_functions"] == []
 
 
@@ -97,6 +98,45 @@ def test_discovery_stage_does_not_expose_execute_tool(tmp_path):
 
     assert "list_available_skills" in tool_names
     assert "execute_skill_script" not in tool_names
+
+
+def test_discovery_stage_with_no_registered_skills_exposes_no_tools(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path)}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-empty",
+        output_root=tmp_path / "outputs",
+        workflow_stage="idle",
+    )
+
+    config = session.preview_turn_ferry_config("帮我查看数据库中有风险的用户")
+
+    assert "zero registered skills" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Do not ask for reference documentation" in config["SCENARIO"]["chat"]["instructions"]
+    assert config["TOOLS"]["local_functions"] == []
+
+
+def test_stage_prompt_keeps_original_user_goal_across_short_replies(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-goal",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_reference_answer",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    config = session.preview_turn_ferry_config("没有")
+
+    assert "Original user goal: 帮我查看数据库中有风险的用户" in config["SCENARIO"]["chat"]["instructions"]
 
 
 def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):

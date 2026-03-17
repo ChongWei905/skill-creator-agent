@@ -125,7 +125,19 @@ def graph_property_filter(
     filter_dict: dict[str, Any] | None = None,
     get_all_properties: bool = False,
 ) -> list[dict[str, Any]]:
-    """Filter graph elements by property conditions."""
+    """Filter graph elements by property conditions.
+
+    `filter_dict` must map property names to Cypher-style condition strings.
+    Supported patterns are:
+    - numeric/string equality: `\"= '0400000012'\"`
+    - range comparisons: `\"> 0\"`, `\"< 100\"`, `\">= 10\"`, `\"<= 20\"`
+    - string matching: `\"CONTAINS '深圳'\"`, `\"STARTS WITH '04'\"`, `\"ENDS WITH '30'\"`
+    - OR is allowed within a single property: `\"CONTAINS '深圳' OR CONTAINS '罗湖'\"`
+
+    Do not pass raw values like `\"深圳\"` or `\"是\"`.
+    Do not put `AND` inside one expression; use separate properties in `filter_dict` instead.
+    For string literals, include single quotes explicitly.
+    """
     return get_runtime_tools().graph_property_filter(
         element_class,
         element_type,
