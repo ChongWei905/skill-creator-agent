@@ -17,6 +17,47 @@ DEFAULT_VERIFICATION_CONFIG = package_path("skill_creator_debug.yaml")
 DEFAULT_VERIFICATION_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")
 DEFAULT_MATERIALIZED_CONFIG_ROOT = project_path(".tmp", "generated_configs")
 
+SKILL_READ_TOOL_NAMES = {
+    "list_available_skills",
+    "read_skill_content",
+    "list_skill_scripts",
+    "read_script_source",
+}
+SKILL_EXECUTION_TOOL_NAMES = {
+    *SKILL_READ_TOOL_NAMES,
+    "execute_skill_script",
+}
+GRAPH_TOOL_NAMES = {
+    "graph_get_object_types",
+    "graph_get_object_relations",
+    "graph_get_entity_schema",
+    "graph_query_examples",
+    "graph_property_filter",
+    "graph_property_info",
+    "graph_hop_search",
+    "graph_count_search",
+    "graph_aggregate_search",
+    "graph_sorted_search",
+    "graph_pattern_search",
+}
+FILE_TOOL_NAMES = {
+    "bash",
+    "read_file",
+    "write_file",
+    "apply_patch",
+}
+SKILL_CREATION_TOOL_NAMES = {
+    "create_skill_scaffold",
+    "reload_skill",
+}
+
+
+@dataclass(frozen=True)
+class StagePolicy:
+    name: str
+    prompt_overlay: str
+    allowed_tool_names: set[str]
+
 
 @dataclass
 class DataAgentSession:
@@ -30,13 +71,16 @@ class DataAgentSession:
     next_run_id: int = 0
     workflow_stage: str = "idle"
     last_assistant_text: str = ""
+    active_turn_stage: str = "discover_existing_skill"
 
     @property
     def output_path(self) -> Path:
         return (self.output_root / self.session_id).resolve()
 
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
-        effective_query = self._prepare_query(query)
+        normalized = query.strip()
+        policy = self.resolve_turn_policy(normalized)
+        self.data_agent = self._build_turn_data_agent(policy)
         initial_state = {
             "user_id": self.user_id,
             "run_id": self.next_run_id,
@@ -45,14 +89,15 @@ class DataAgentSession:
             "messages": [],
         }
         response = await self.data_agent.chat(
-            effective_query,
+            normalized,
             session_id=self.session_id,
             clear_history=clear_history,
             output_path=self.output_path,
             initial_state=initial_state,
         )
         self.last_assistant_text = extract_last_message_text(response)
-        self._update_workflow_stage(self.last_assistant_text)
+        self.active_turn_stage = policy.name
+        self._advance_workflow_stage(policy, self.last_assistant_text)
         self.next_run_id += 1
         return response
 
@@ -61,38 +106,41 @@ class DataAgentSession:
         self.next_run_id = 0
         self.workflow_stage = "idle"
         self.last_assistant_text = ""
+        self.active_turn_stage = "discover_existing_skill"
+        self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""))
 
-    def _prepare_query(self, query: str) -> str:
+    def resolve_turn_policy(self, query: str) -> StagePolicy:
         normalized = query.strip()
         if self.workflow_stage == "awaiting_create_confirmation" and _is_affirmative(normalized):
-            return (
-                "Workflow gate: the user has just confirmed that a new skill should be created. "
-                "This turn must execute only Step 2 of the original workflow. "
-                "Ask whether the user has reference documentation, schemas, examples, sample commands, "
-                "or business rules that should guide the skill. "
-                "Do not call any tools. Do not inspect graph data. Do not create or modify files. "
-                f"User response: {normalized}"
-            )
+            return _ask_references_policy()
         if self.workflow_stage == "awaiting_reference_answer":
-            return (
-                "Workflow gate: the user has now answered the documentation question. "
-                "You may inspect only the required graph/schema information, then present a natural-language "
-                "execution flow plan and ask for explicit approval. "
-                "Do not create or modify files in this turn. "
-                f"User response: {normalized}"
-            )
+            return _propose_plan_policy(graph_enabled=self.runtime.settings.graph_enabled)
         if self.workflow_stage == "awaiting_plan_approval" and _is_affirmative(normalized):
-            return (
-                "Workflow gate: the user has explicitly approved the execution flow. "
-                "You may now create the skill package. "
-                "Use real graph-backed logic where applicable. Never write mock data, simulated query results, "
-                "or placeholder scripts into the skill. "
-                f"User response: {normalized}"
-            )
-        return normalized
+            return _create_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
+        if self.workflow_stage == "awaiting_execute_confirmation" and _is_affirmative(normalized):
+            return _execute_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
+        return _discover_existing_skill_policy()
 
-    def _update_workflow_stage(self, assistant_text: str) -> None:
-        normalized = assistant_text.lower()
+    def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
+        policy = self.resolve_turn_policy(query)
+        return self._build_turn_ferry_config(policy)
+
+    def _advance_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> None:
+        if policy.name == "ask_references":
+            self.workflow_stage = "awaiting_reference_answer"
+            return
+        if policy.name == "propose_plan":
+            self.workflow_stage = "awaiting_plan_approval"
+            return
+        if policy.name == "create_skill":
+            if _looks_like_execute_request(assistant_text):
+                self.workflow_stage = "awaiting_execute_confirmation"
+                return
+            self.workflow_stage = "idle"
+            return
+        if policy.name == "execute_skill":
+            self.workflow_stage = "idle"
+            return
         if _looks_like_create_confirmation(assistant_text):
             self.workflow_stage = "awaiting_create_confirmation"
             return
@@ -102,8 +150,33 @@ class DataAgentSession:
         if _looks_like_plan_approval_request(assistant_text):
             self.workflow_stage = "awaiting_plan_approval"
             return
-        if "skill" in normalized and ("created" in normalized or "创建" in assistant_text):
-            self.workflow_stage = "idle"
+        if _looks_like_execute_request(assistant_text):
+            self.workflow_stage = "awaiting_execute_confirmation"
+            return
+        self.workflow_stage = "idle"
+
+    def _build_turn_data_agent(self, policy: StagePolicy) -> DataAgent:
+        rendered_path = self.ferry_config_path
+        materialize_ferry_config(
+            self.source_config,
+            runtime=self.runtime,
+            output_path=rendered_path,
+            stage_instructions=policy.prompt_overlay,
+            allowed_local_tool_names=policy.allowed_tool_names,
+        )
+        configure_runtime_tools(config=self.source_config, runtime=self.runtime)
+        self.ferry_config_path = rendered_path
+        return DataAgent.from_config(rendered_path)
+
+    def _build_turn_ferry_config(self, policy: StagePolicy) -> dict[str, Any]:
+        from skill_creator_agent.ferry_config import build_ferry_config
+
+        return build_ferry_config(
+            self.source_config,
+            runtime=self.runtime,
+            stage_instructions=policy.prompt_overlay,
+            allowed_local_tool_names=policy.allowed_tool_names,
+        )
 
 
 def build_data_agent_session(
@@ -136,12 +209,16 @@ def build_data_agent_session(
     resolved_session_id = session_id or _new_session_id()
     if materialized_config_path is None:
         materialized_config_path = DEFAULT_MATERIALIZED_CONFIG_ROOT / f"{resolved_session_id}.yaml"
-    rendered_path = materialize_ferry_config(
+    rendered_path = Path(materialized_config_path).expanduser().resolve()
+
+    initial_policy = _discover_existing_skill_policy()
+    materialize_ferry_config(
         source_config,
         runtime=runtime,
-        output_path=materialized_config_path,
+        output_path=rendered_path,
+        stage_instructions=initial_policy.prompt_overlay,
+        allowed_local_tool_names=initial_policy.allowed_tool_names,
     )
-
     data_agent = DataAgent.from_config(rendered_path)
     return DataAgentSession(
         data_agent=data_agent,
@@ -151,6 +228,7 @@ def build_data_agent_session(
         user_id=user_id,
         session_id=resolved_session_id,
         output_root=resolved_output_root,
+        active_turn_stage=initial_policy.name,
     )
 
 
@@ -206,6 +284,80 @@ def _new_session_id() -> str:
     return f"skill-creator-{uuid.uuid4().hex[:12]}"
 
 
+def _discover_existing_skill_policy() -> StagePolicy:
+    return StagePolicy(
+        name="discover_existing_skill",
+        prompt_overlay=(
+            "This turn is only for initial skill discovery and reuse. "
+            "Inspect existing skills first. If an existing skill can solve the task, explain that choice and use it. "
+            "If no existing skill matches, stop after asking whether a new skill should be created. "
+            "Do not inspect graph data. Do not create or modify any files in this turn."
+        ),
+        allowed_tool_names=set(SKILL_EXECUTION_TOOL_NAMES),
+    )
+
+
+def _ask_references_policy() -> StagePolicy:
+    return StagePolicy(
+        name="ask_references",
+        prompt_overlay=(
+            "This turn is Step 2 only. Ask whether the user has reference documentation, schemas, examples, "
+            "sample commands, or business rules. Do not call any tools. Do not inspect graph data. "
+            "Do not create or modify any files."
+        ),
+        allowed_tool_names=set(),
+    )
+
+
+def _propose_plan_policy(*, graph_enabled: bool) -> StagePolicy:
+    allowed_tool_names = set(GRAPH_TOOL_NAMES) if graph_enabled else set()
+    prompt_overlay = (
+        "This turn is only for understanding the available schema/data and proposing the execution flow in natural language. "
+        "Inspect only the minimum graph/schema information required, then present the planned skill behavior and wait for explicit approval. "
+        "Do not create or modify any files in this turn."
+    )
+    if not graph_enabled:
+        prompt_overlay += " Graph access is disabled, so rely only on the user-provided information."
+    return StagePolicy(
+        name="propose_plan",
+        prompt_overlay=prompt_overlay,
+        allowed_tool_names=allowed_tool_names,
+    )
+
+
+def _create_skill_policy(*, graph_enabled: bool) -> StagePolicy:
+    allowed_tool_names = {
+        *FILE_TOOL_NAMES,
+        *SKILL_READ_TOOL_NAMES,
+        *SKILL_CREATION_TOOL_NAMES,
+    }
+    if graph_enabled:
+        allowed_tool_names.update(GRAPH_TOOL_NAMES)
+    return StagePolicy(
+        name="create_skill",
+        prompt_overlay=(
+            "The user has approved the execution plan. You may now create the skill package and write the real SKILL.md/scripts. "
+            "Use real graph-backed logic where applicable. Never write mock data, simulated query results, or placeholder scripts. "
+            "After writing the package, call reload_skill, summarize what was created, and ask whether the user wants to execute the new skill."
+        ),
+        allowed_tool_names=allowed_tool_names,
+    )
+
+
+def _execute_skill_policy(*, graph_enabled: bool) -> StagePolicy:
+    allowed_tool_names = set(SKILL_EXECUTION_TOOL_NAMES)
+    if graph_enabled:
+        allowed_tool_names.update(GRAPH_TOOL_NAMES)
+    return StagePolicy(
+        name="execute_skill",
+        prompt_overlay=(
+            "The user has approved execution of an existing or newly created skill. "
+            "Inspect the relevant SKILL.md/scripts if needed, execute the correct script, and report the real result."
+        ),
+        allowed_tool_names=allowed_tool_names,
+    )
+
+
 def _is_affirmative(text: str) -> bool:
     normalized = text.strip().lower()
     positives = {
@@ -226,19 +378,32 @@ def _is_affirmative(text: str) -> bool:
         "行",
         "确认",
         "开始吧",
+        "执行吧",
+        "运行吧",
     }
-    return normalized in positives or any(token in normalized for token in ["创建吧", "创建", "可以", "确认", "好"])
+    return normalized in positives or any(token in normalized for token in ["创建吧", "创建", "可以", "确认", "执行吧", "运行吧"])
 
 
 def _looks_like_create_confirmation(text: str) -> bool:
     signals = [
         "是否希望我为您创建",
+        "希望我为您创建",
         "是否要创建一个新的 skill",
+        "是否要创建这个新技能",
+        "请确认是否要创建",
+        "请问您希望我为您创建",
         "would you like me to create",
         "do you want me to create a new skill",
         "确认技能创建需求",
     ]
-    return any(signal.lower() in text.lower() for signal in signals)
+    normalized = text.lower()
+    if any(signal.lower() in normalized for signal in signals):
+        return True
+    return (
+        ("没有现成的技能" in text or "没有匹配的技能" in text or "no matching skill" in normalized)
+        and ("创建" in text or "create" in normalized)
+        and ("技能" in text or "skill" in normalized)
+    )
 
 
 def _looks_like_reference_request(text: str) -> bool:
@@ -262,5 +427,16 @@ def _looks_like_plan_approval_request(text: str) -> bool:
         "是否继续创建",
         "是否调整",
         "执行流程",
+    ]
+    return any(signal.lower() in text.lower() for signal in signals)
+
+
+def _looks_like_execute_request(text: str) -> bool:
+    signals = [
+        "是否执行",
+        "would you like me to execute",
+        "do you want me to execute",
+        "execute the new skill",
+        "run the new skill",
     ]
     return any(signal.lower() in text.lower() for signal in signals)

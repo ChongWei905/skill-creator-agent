@@ -131,11 +131,21 @@ def build_ferry_config(
     config: Mapping[str, Any] | None,
     *,
     runtime: SkillCreatorRuntime,
+    stage_instructions: str | None = None,
+    allowed_local_tool_names: set[str] | list[str] | None = None,
 ) -> dict[str, Any]:
     user_config = dict(config or {})
-    base_config = _build_default_ferry_config(runtime=runtime, config=user_config)
+    base_config = _build_default_ferry_config(
+        runtime=runtime,
+        config=user_config,
+        stage_instructions=stage_instructions,
+    )
     merged = _deep_merge(base_config, user_config)
-    return _normalize_ferry_config(merged, runtime=runtime)
+    return _normalize_ferry_config(
+        merged,
+        runtime=runtime,
+        allowed_local_tool_names=allowed_local_tool_names,
+    )
 
 
 def materialize_ferry_config(
@@ -143,10 +153,17 @@ def materialize_ferry_config(
     *,
     runtime: SkillCreatorRuntime,
     output_path: str | Path,
+    stage_instructions: str | None = None,
+    allowed_local_tool_names: set[str] | list[str] | None = None,
 ) -> Path:
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    rendered = build_ferry_config(config, runtime=runtime)
+    rendered = build_ferry_config(
+        config,
+        runtime=runtime,
+        stage_instructions=stage_instructions,
+        allowed_local_tool_names=allowed_local_tool_names,
+    )
     target.write_text(
         yaml.safe_dump(rendered, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
@@ -154,7 +171,12 @@ def materialize_ferry_config(
     return target
 
 
-def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping[str, Any] | None) -> dict[str, Any]:
+def _build_default_ferry_config(
+    *,
+    runtime: SkillCreatorRuntime,
+    config: Mapping[str, Any] | None,
+    stage_instructions: str | None = None,
+) -> dict[str, Any]:
     chat_model_name = _resolve_chat_model_name(config)
     return {
         "AGENT_CONFIG": {
@@ -178,7 +200,7 @@ def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping
         },
         "SCENARIO": {
             "chat": {
-                "instructions": runtime.build_system_prompt(),
+                "instructions": _compose_instructions(runtime, stage_instructions=stage_instructions),
                 "constraints": (
                     "Use the dedicated skill runtime tools to inspect and execute existing skills. "
                     "When no matching skill exists, preserve the original workflow gates exactly: "
@@ -246,7 +268,12 @@ def _deep_merge(base: Any, override: Any) -> Any:
     return override
 
 
-def _normalize_ferry_config(config: dict[str, Any], *, runtime: SkillCreatorRuntime) -> dict[str, Any]:
+def _normalize_ferry_config(
+    config: dict[str, Any],
+    *,
+    runtime: SkillCreatorRuntime,
+    allowed_local_tool_names: set[str] | list[str] | None = None,
+) -> dict[str, Any]:
     normalized = dict(config)
 
     skill_creator_cfg = dict(normalized.get("SKILL_CREATOR", {}))
@@ -263,10 +290,25 @@ def _normalize_ferry_config(config: dict[str, Any], *, runtime: SkillCreatorRunt
 
     tools_cfg = dict(normalized.get("TOOLS", {}))
     tools_cfg["local_functions"] = _dedupe_local_functions(tools_cfg.get("local_functions", []))
+    tools_cfg["local_functions"] = _filter_local_functions(
+        tools_cfg["local_functions"],
+        allowed_local_tool_names,
+    )
     tools_cfg["skills"] = runtime.build_ferry_skill_registry()
     normalized["TOOLS"] = tools_cfg
 
     return normalized
+
+
+def _compose_instructions(runtime: SkillCreatorRuntime, *, stage_instructions: str | None) -> str:
+    base_instructions = runtime.build_system_prompt().rstrip()
+    if not stage_instructions:
+        return base_instructions
+    return (
+        f"{base_instructions}\n\n"
+        "[CURRENT WORKFLOW STAGE]\n"
+        f"{stage_instructions.strip()}"
+    )
 
 
 def _dedupe_local_functions(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -281,6 +323,16 @@ def _dedupe_local_functions(tools: list[dict[str, Any]]) -> list[dict[str, Any]]
         seen.add(key)
         deduped.append(tool)
     return deduped
+
+
+def _filter_local_functions(
+    tools: list[dict[str, Any]],
+    allowed_local_tool_names: set[str] | list[str] | None,
+) -> list[dict[str, Any]]:
+    if allowed_local_tool_names is None:
+        return tools
+    allowed = {str(name) for name in allowed_local_tool_names}
+    return [tool for tool in tools if str(tool.get("name", "")) in allowed]
 
 
 def _build_runtime_tools(runtime: SkillCreatorRuntime) -> list[dict[str, Any]]:

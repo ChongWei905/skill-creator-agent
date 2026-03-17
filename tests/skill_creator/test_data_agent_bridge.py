@@ -7,6 +7,7 @@ from ferry.interface.sdk.agent import DataAgent
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
+    _looks_like_create_confirmation,
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
@@ -60,17 +61,9 @@ def test_cli_parse_args_defaults():
     assert args.disable_graph is False
 
 
-def test_data_agent_session_injects_reference_doc_gate_after_create_confirmation(tmp_path):
-    class FakeDataAgent:
-        def __init__(self):
-            self.queries: list[str] = []
-
-        async def chat(self, query, **kwargs):
-            self.queries.append(query)
-            return {"messages": [type("Msg", (), {"content": "请提供参考文档或明确说明没有文档支持。"})()]}
-
+def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
     session = DataAgentSession(
-        data_agent=FakeDataAgent(),
+        data_agent=object(),
         runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
         source_config={},
         ferry_config_path=tmp_path / "rendered.yaml",
@@ -80,27 +73,20 @@ def test_data_agent_session_injects_reference_doc_gate_after_create_confirmation
         workflow_stage="awaiting_create_confirmation",
     )
 
-    import asyncio
+    config = session.preview_turn_ferry_config("创建吧")
 
-    asyncio.run(session.ask("创建吧"))
+    assert "[CURRENT WORKFLOW STAGE]" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Step 2 only" in config["SCENARIO"]["chat"]["instructions"]
+    assert config["TOOLS"]["local_functions"] == []
 
-    assert "must execute only Step 2" in session.data_agent.queries[0]
-    assert session.workflow_stage == "awaiting_reference_answer"
 
-
-def test_data_agent_session_injects_plan_gate_after_reference_answer(tmp_path):
-    class FakeDataAgent:
-        def __init__(self):
-            self.queries: list[str] = []
-
-        async def chat(self, query, **kwargs):
-            self.queries.append(query)
-            return {"messages": [type("Msg", (), {"content": "📋 Skill Execution Flow Plan\nDoes this execution flow look correct? Should I proceed with creating the skill?"})()]}
-
+def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     session = DataAgentSession(
-        data_agent=FakeDataAgent(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
         ferry_config_path=tmp_path / "rendered.yaml",
         user_id="tester",
         session_id="session-2",
@@ -108,9 +94,20 @@ def test_data_agent_session_injects_plan_gate_after_reference_answer(tmp_path):
         workflow_stage="awaiting_reference_answer",
     )
 
-    import asyncio
+    config = session.preview_turn_ferry_config("没有文档支撑")
+    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
-    asyncio.run(session.ask("没有文档支撑"))
+    assert "planned skill behavior" in config["SCENARIO"]["chat"]["instructions"]
+    assert "graph_get_object_types" in tool_names
+    assert "create_skill_scaffold" not in tool_names
+    assert "write_file" not in tool_names
 
-    assert "Do not create or modify files in this turn." in session.data_agent.queries[0]
-    assert session.workflow_stage == "awaiting_plan_approval"
+
+def test_create_confirmation_detection_matches_real_chinese_prompt():
+    assistant_text = (
+        "目前没有现成的技能可以处理这个需求。\n\n"
+        "请问您希望我为您创建一个新的技能来处理这个需求吗？\n"
+        "请确认是否要创建这个新技能？"
+    )
+
+    assert _looks_like_create_confirmation(assistant_text) is True
