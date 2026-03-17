@@ -81,7 +81,18 @@ def create_skill_scaffold(
     script_files: dict[str, str] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    """Create a valid skill directory with SKILL.md and an empty scripts/ area."""
+    """Create a valid skill directory with SKILL.md and optional starter scripts.
+
+    Use this as the first creation step after the user has approved the workflow plan.
+    Provide:
+    - `skill_name`: a filesystem-safe slug such as `risk-customer-query`
+    - `description`: one concise sentence describing what the skill does
+    - `body`: optional initial SKILL.md body content
+    - `script_files`: optional mapping like `{\"query.py\": \"print('hello')\"}`
+
+    After this tool succeeds, continue refining the created files with `write_file` or
+    `apply_patch`, then call `reload_skill` to register the finished skill from disk.
+    """
     return get_runtime_tools().create_skill_scaffold(
         skill_name,
         description,

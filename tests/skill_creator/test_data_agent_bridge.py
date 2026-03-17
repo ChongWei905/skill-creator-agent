@@ -163,6 +163,32 @@ def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     assert "write_file" not in tool_names
 
 
+def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-create",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_plan_approval",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    config = session.preview_turn_ferry_config("是，请创建技能")
+    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
+    instructions = config["SCENARIO"]["chat"]["instructions"]
+
+    assert "Do not ask whether the skill should be created again." in instructions
+    assert "Start by calling create_skill_scaffold" in instructions
+    assert "create_skill_scaffold" in tool_names
+    assert "reload_skill" in tool_names
+    assert "write_file" in tool_names
+
+
 def test_create_confirmation_detection_matches_real_chinese_prompt():
     assistant_text = (
         "目前没有现成的技能可以处理这个需求。\n\n"

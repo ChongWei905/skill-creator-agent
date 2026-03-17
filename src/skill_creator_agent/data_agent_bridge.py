@@ -405,9 +405,14 @@ def _create_skill_policy(*, graph_enabled: bool) -> StagePolicy:
     return StagePolicy(
         name="create_skill",
         prompt_overlay=(
-            "The user has approved the execution plan. You may now create the skill package and write the real SKILL.md/scripts. "
+            "The user has already approved the execution plan. "
+            "Do not ask whether the skill should be created again. "
+            "Do not ask whether the execution flow is correct again. "
+            "You must now create the skill package in this turn. "
+            "Start by calling create_skill_scaffold with a concrete skill name and description inferred from the approved plan and the original user goal. "
+            "Then write or refine the real SKILL.md and script files using write_file or apply_patch. "
             "Use real graph-backed logic where applicable. Never write mock data, simulated query results, or placeholder scripts. "
-            "After writing the package, call reload_skill, summarize what was created, and ask whether the user wants to execute the new skill."
+            "After writing the package, call reload_skill, summarize exactly what was created, and only then ask whether the user wants to execute the new skill."
         ),
         allowed_tool_names=allowed_tool_names,
     )
