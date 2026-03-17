@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from ferry.core.cbb.base_agent import BaseAgent
 from ferry.core.flex.agent import FlexAgent
+from ferry.actions.tools import tool_manager
 from ferry.interface.sdk.agent import DataAgent
 
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
+    _inspect_schema_policy,
     _looks_like_create_confirmation,
     build_data_agent_session,
     extract_last_message_text,
@@ -75,9 +77,9 @@ def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
 
     config = session.preview_turn_ferry_config("创建吧")
 
-    assert "[CURRENT WORKFLOW STAGE]" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Step 2 only" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Do not ask whether the skill should be created again." in config["SCENARIO"]["chat"]["instructions"]
+    assert "Current stage: ask_references" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Ask only for reference documentation" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Do not ask whether the skill should be created again." not in config["SCENARIO"]["chat"]["instructions"]
     assert config["TOOLS"]["local_functions"] == []
 
 
@@ -114,8 +116,8 @@ def test_discovery_stage_with_no_registered_skills_exposes_no_tools(tmp_path):
 
     config = session.preview_turn_ferry_config("帮我查看数据库中有风险的用户")
 
-    assert "zero registered skills" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Do not ask for reference documentation" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Current stage: discover_existing_skill" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Available skill metadata:" in config["SCENARIO"]["chat"]["instructions"]
     assert config["TOOLS"]["local_functions"] == []
 
 
@@ -156,8 +158,8 @@ def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     config = session.preview_turn_ferry_config("没有文档支撑")
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
-    assert "planned skill behavior" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Do not ask whether the user has documentation again." in config["SCENARIO"]["chat"]["instructions"]
+    assert "Current stage: inspect_schema" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Return only a concise internal handoff summary" in config["SCENARIO"]["chat"]["instructions"]
     assert "graph_get_object_types" in tool_names
     assert "create_skill_scaffold" not in tool_names
     assert "write_file" not in tool_names
@@ -182,11 +184,13 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
     instructions = config["SCENARIO"]["chat"]["instructions"]
 
-    assert "Do not ask whether the skill should be created again." in instructions
-    assert "Start by calling create_skill_scaffold" in instructions
+    assert "Current stage: create_skill" in instructions
+    assert "Do not ask for approval again." in instructions
+    assert "Start with create_skill_scaffold" in instructions
     assert "create_skill_scaffold" in tool_names
     assert "reload_skill" in tool_names
     assert "write_file" in tool_names
+    assert "graph_get_object_types" not in tool_names
 
 
 def test_create_confirmation_detection_matches_real_chinese_prompt():
@@ -214,8 +218,116 @@ def test_propose_plan_stage_does_not_advance_when_assistant_repeats_doc_question
     )
 
     session._advance_workflow_stage(
-        session.resolve_turn_policy("没有"),
+        _inspect_schema_policy(graph_enabled=True),
         "您是否有任何关于用户风险分析的参考文档可以帮助指导技能创建？",
     )
 
+    assert session.workflow_stage == "awaiting_plan_approval"
+
+
+def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-4",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_reference_answer",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    responses = [
+        {"messages": [type("Msg", (), {"content": "SCHEMA SUMMARY:\n- relevant entities: Person\n- key properties: customer_description"})()]},
+        {"messages": [type("Msg", (), {"content": "这是执行方案，请审批。"})()]},
+    ]
+
+    async def fake_run_stage(policy, query, *, clear_history):
+        return responses.pop(0)
+
+    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+
+    import asyncio
+
+    result = asyncio.run(session.ask("没有"))
+
+    assert "执行方案" in extract_last_message_text(result)
+    assert "Person" in session.schema_summary
+    assert session.workflow_stage == "awaiting_plan_approval"
+    assert session.active_turn_stage == "propose_plan"
+
+
+def test_empty_discovery_stage_short_circuits_to_direct_create_question(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path)}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-empty-short",
+        output_root=tmp_path / "outputs",
+        workflow_stage="idle",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    import asyncio
+
+    result = asyncio.run(session.ask("帮我查看数据库中有风险的用户"))
+    text = extract_last_message_text(result)
+
+    assert "创建一个新的技能" in text
+    assert "帮我查看数据库中有风险的用户" in text
+    assert session.workflow_stage == "awaiting_create_confirmation"
+
+
+def test_ask_references_stage_short_circuits_to_single_question(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-doc-short",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_create_confirmation",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    import asyncio
+
+    result = asyncio.run(session.ask("创建"))
+    text = extract_last_message_text(result)
+
+    assert "是否有可参考的资料" in text
+    assert "如果没有，请直接回复“没有”" in text
     assert session.workflow_stage == "awaiting_reference_answer"
+
+
+def test_stage_tool_registry_isolation_between_schema_and_create(tmp_path):
+    session = build_data_agent_session(
+        {
+            "SKILL_CREATOR": {
+                "skills_root": str(tmp_path / "skills"),
+                "graph_enabled": True,
+            }
+        },
+        user_id="tester",
+        output_root=tmp_path / "outputs",
+        materialized_config_path=tmp_path / "rendered.yaml",
+    )
+    session.user_goal = "帮我查看数据库中有风险的用户"
+    session.reference_summary = "没有"
+    session.schema_summary = "SCHEMA SUMMARY: Person"
+    session.workflow_stage = "awaiting_plan_approval"
+
+    session._build_turn_data_agent(_inspect_schema_policy(graph_enabled=True), "inspect schema")
+    assert "graph_get_object_types" in set(tool_manager.list_tools())
+
+    session._build_turn_data_agent(session.resolve_turn_policy("批准，请创建"), "批准，请创建")
+    tool_names = set(tool_manager.list_tools())
+
+    assert "create_skill_scaffold" in tool_names
+    assert "graph_get_object_types" not in tool_names

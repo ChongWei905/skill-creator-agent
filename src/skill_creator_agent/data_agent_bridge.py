@@ -57,8 +57,8 @@ SKILL_CREATION_TOOL_NAMES = {
 @dataclass(frozen=True)
 class StagePolicy:
     name: str
-    prompt_overlay: str
     allowed_tool_names: set[str]
+    constraints: str = "Follow the current stage exactly. Use only the registered tools for this stage."
 
 
 @dataclass
@@ -71,10 +71,17 @@ class DataAgentSession:
     session_id: str
     output_root: Path
     next_run_id: int = 0
+    next_call_id: int = 0
     workflow_stage: str = "idle"
     last_assistant_text: str = ""
     active_turn_stage: str = "discover_existing_skill"
     user_goal: str = ""
+    reference_summary: str = ""
+    no_references: bool = False
+    schema_summary: str = ""
+    plan_summary: str = ""
+    created_skill_summary: str = ""
+    created_skill_name: str = ""
 
     @property
     def output_path(self) -> Path:
@@ -83,47 +90,59 @@ class DataAgentSession:
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
         normalized = query.strip()
         self._maybe_capture_user_goal(normalized)
+        if self.workflow_stage == "awaiting_reference_answer":
+            response = await self._handle_reference_answer_turn(normalized)
+            self.next_run_id += 1
+            return response
+
         policy = self.resolve_turn_policy(normalized)
-        self.data_agent = self._build_turn_data_agent(policy)
-        initial_state = {
-            "user_id": self.user_id,
-            "run_id": self.next_run_id,
-            "sub_id": 0,
-            "complete": False,
-            "messages": [],
-        }
-        response = await self.data_agent.chat(
-            normalized,
-            session_id=self.session_id,
-            clear_history=clear_history,
-            output_path=self.output_path,
-            initial_state=initial_state,
-        )
+        if self._should_short_circuit_stage(policy):
+            response = self._build_short_circuit_response(policy)
+        else:
+            response = await self._run_stage(policy, normalized, clear_history=clear_history)
         self.last_assistant_text = extract_last_message_text(response)
         self.active_turn_stage = policy.name
         self._advance_workflow_stage(policy, self.last_assistant_text)
+        if policy.name == "create_skill":
+            self.created_skill_summary = _compact_text(self.last_assistant_text, limit=2200)
+            extracted = _extract_created_skill_name(self.last_assistant_text)
+            if extracted:
+                self.created_skill_name = extracted
         self.next_run_id += 1
         return response
 
     def reset(self, *, session_id: str | None = None) -> None:
         self.session_id = session_id or _new_session_id()
         self.next_run_id = 0
+        self.next_call_id = 0
         self.workflow_stage = "idle"
         self.last_assistant_text = ""
         self.active_turn_stage = "discover_existing_skill"
         self.user_goal = ""
-        self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""))
+        self.reference_summary = ""
+        self.no_references = False
+        self.schema_summary = ""
+        self.plan_summary = ""
+        self.created_skill_summary = ""
+        self.created_skill_name = ""
+        self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""), "")
 
     def resolve_turn_policy(self, query: str) -> StagePolicy:
         normalized = query.strip()
+        if (
+            self.workflow_stage == "idle"
+            and _is_affirmative(normalized)
+            and _looks_like_create_confirmation(self.last_assistant_text)
+        ):
+            return _ask_references_policy()
         if self.workflow_stage == "awaiting_create_confirmation" and _is_affirmative(normalized):
             return _ask_references_policy()
         if self.workflow_stage == "awaiting_reference_answer":
-            return _propose_plan_policy(graph_enabled=self.runtime.settings.graph_enabled)
+            return _inspect_schema_policy(graph_enabled=self.runtime.settings.graph_enabled)
         if self.workflow_stage == "awaiting_plan_approval" and _is_affirmative(normalized):
-            return _create_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
+            return _create_skill_policy()
         if self.workflow_stage == "awaiting_execute_confirmation" and _is_affirmative(normalized):
-            return _execute_skill_policy(graph_enabled=self.runtime.settings.graph_enabled)
+            return _execute_skill_policy()
         return _discover_existing_skill_policy(runtime=self.runtime)
 
     def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
@@ -132,22 +151,13 @@ class DataAgentSession:
 
     def _advance_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> None:
         if policy.name == "ask_references":
-            if _looks_like_reference_request(assistant_text):
-                self.workflow_stage = "awaiting_reference_answer"
-                return
-            if _looks_like_plan_approval_request(assistant_text):
-                self.workflow_stage = "awaiting_plan_approval"
-                return
             self.workflow_stage = "awaiting_reference_answer"
             return
+        if policy.name == "inspect_schema":
+            self.workflow_stage = "awaiting_plan_approval"
+            return
         if policy.name == "propose_plan":
-            if _looks_like_plan_approval_request(assistant_text):
-                self.workflow_stage = "awaiting_plan_approval"
-                return
-            if _looks_like_execute_request(assistant_text):
-                self.workflow_stage = "awaiting_execute_confirmation"
-                return
-            self.workflow_stage = "awaiting_reference_answer"
+            self.workflow_stage = "awaiting_plan_approval"
             return
         if policy.name == "create_skill":
             if _looks_like_execute_request(assistant_text):
@@ -172,14 +182,67 @@ class DataAgentSession:
             return
         self.workflow_stage = "idle"
 
-    def _build_turn_data_agent(self, policy: StagePolicy) -> DataAgent:
+    async def _handle_reference_answer_turn(self, query: str) -> dict[str, Any]:
+        self.reference_summary = _compact_text(query, limit=1000)
+        self.no_references = _is_negative_reference_reply(query)
+
+        if self.runtime.settings.graph_enabled:
+            schema_response = await self._run_stage(
+                _inspect_schema_policy(graph_enabled=True),
+                _internal_stage_query("inspect_schema"),
+                clear_history=True,
+            )
+            self.schema_summary = _compact_text(extract_last_message_text(schema_response), limit=2200)
+        else:
+            self.schema_summary = "Graph access is disabled. Rely only on the user-provided requirements."
+
+        plan_response = await self._run_stage(
+            _propose_plan_policy(),
+            _internal_stage_query("propose_plan"),
+            clear_history=True,
+        )
+        self.last_assistant_text = extract_last_message_text(plan_response)
+        self.plan_summary = _compact_text(self.last_assistant_text, limit=2600)
+        self.active_turn_stage = "propose_plan"
+        self.workflow_stage = "awaiting_plan_approval"
+        return plan_response
+
+    async def _run_stage(
+        self,
+        policy: StagePolicy,
+        query: str,
+        *,
+        clear_history: bool,
+    ) -> dict[str, Any]:
+        self.data_agent = self._build_turn_data_agent(policy, query)
+        initial_state = {
+            "user_id": self.user_id,
+            "run_id": 0,
+            "sub_id": 0,
+            "complete": False,
+            "messages": [],
+        }
+        stage_session_id = self._stage_session_id(policy.name)
+        stage_output_path = self._stage_output_path(policy.name)
+        response = await self.data_agent.chat(
+            query,
+            session_id=stage_session_id,
+            clear_history=True if clear_history else True,
+            output_path=stage_output_path,
+            initial_state=initial_state,
+        )
+        self.next_call_id += 1
+        return response
+
+    def _build_turn_data_agent(self, policy: StagePolicy, query: str) -> DataAgent:
         rendered_path = self.ferry_config_path
         _reset_ferry_singletons()
         materialize_ferry_config(
             self.source_config,
             runtime=self.runtime,
             output_path=rendered_path,
-            stage_instructions=self._render_stage_prompt(policy),
+            system_instructions=self._build_stage_system_prompt(policy, query),
+            system_constraints=policy.constraints,
             allowed_local_tool_names=policy.allowed_tool_names,
         )
         configure_runtime_tools(config=self.source_config, runtime=self.runtime)
@@ -192,18 +255,133 @@ class DataAgentSession:
         return build_ferry_config(
             self.source_config,
             runtime=self.runtime,
-            stage_instructions=self._render_stage_prompt(policy),
+            system_instructions=self._build_stage_system_prompt(policy, ""),
+            system_constraints=policy.constraints,
             allowed_local_tool_names=policy.allowed_tool_names,
         )
 
-    def _render_stage_prompt(self, policy: StagePolicy) -> str:
-        if not self.user_goal:
-            return policy.prompt_overlay
-        return (
-            f"Original user goal: {self.user_goal}\n"
-            "Keep this original goal in scope for this turn even if the latest user reply is short.\n"
-            f"{policy.prompt_overlay}"
+    def _build_stage_system_prompt(self, policy: StagePolicy, query: str) -> str:
+        header = [
+            "You are SkillCreatorAgent.",
+            f"Current stage: {policy.name}",
+            "Do only the work required for the current stage.",
+            "Do not mention hidden stage orchestration or internal handoff summaries.",
+            "Never narrate your internal reasoning, stage transitions, or tool eligibility checks.",
+            "Output only the assistant message that should be shown to the user.",
+        ]
+        allowed_tools = sorted(policy.allowed_tool_names)
+        goal = self.user_goal or query or "Unknown goal"
+        context_lines = [f"Original user goal: {goal}"]
+        context_lines.append(
+            "Allowed tools for this stage: "
+            + (", ".join(allowed_tools) if allowed_tools else "none")
         )
+
+        if policy.name == "discover_existing_skill":
+            context_lines.append("Available skill metadata:")
+            skills = self.runtime.list_skills()
+            if skills:
+                for skill in skills[:20]:
+                    context_lines.append(f"- {skill['name']}: {skill['description']}")
+            else:
+                context_lines.append("- None")
+            instructions = [
+                "Only determine whether an existing skill can solve the goal.",
+                "If no skill matches, ask only whether a new skill should be created.",
+                "Do not ask for reference documentation or business rules yet.",
+                "If the allowed tools list is empty, do not invent tools, filesystem inspection, or pseudo tool calls.",
+                "Keep the response concise and user-facing.",
+                "When no skill matches, reply with a direct question asking whether a new skill should be created.",
+            ]
+        elif policy.name == "ask_references":
+            instructions = [
+                "The user has already confirmed that a new skill should be created.",
+                "Ask only for reference documentation, schemas, examples, sample commands, or business rules.",
+                "If there is no supporting material, ask the user to reply clearly that none is available.",
+                "Keep the reply to a single focused user-facing question.",
+            ]
+        elif policy.name == "inspect_schema":
+            context_lines.append(f"Reference summary: {self.reference_summary or 'None provided.'}")
+            instructions = [
+                "Inspect only the minimum graph/schema information required for the goal.",
+                "Do not address the user.",
+                "Do not propose the final execution plan yet.",
+                "Return only a concise internal handoff summary in this format:",
+                "SCHEMA SUMMARY:",
+                "- relevant entities:",
+                "- key properties:",
+                "- useful filters:",
+                "- caveats:",
+            ]
+        elif policy.name == "propose_plan":
+            context_lines.append(f"Reference summary: {self.reference_summary or 'None provided.'}")
+            context_lines.append(f"Schema summary: {self.schema_summary or 'No schema summary available.'}")
+            instructions = [
+                "Use only the reference summary and schema summary above.",
+                "Write a user-facing natural-language execution plan.",
+                "The plan must include a proposed skill name, data sources, query/filter logic, and files to create.",
+                "End by asking for explicit approval to create the skill.",
+                "Do not call any tools.",
+            ]
+        elif policy.name == "create_skill":
+            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
+            instructions = [
+                "The user has already approved the plan.",
+                "Do not ask for approval again.",
+                "Create the skill package in this turn.",
+                "Start with create_skill_scaffold, then write or patch the real SKILL.md and scripts, then call reload_skill.",
+                "Do not use graph tools in this stage.",
+                "After creation, summarize exactly what was created and ask whether to execute the new skill.",
+            ]
+        else:
+            context_lines.append(f"Created skill summary: {self.created_skill_summary or 'No created skill summary available.'}")
+            instructions = [
+                "Inspect the created or existing skill only as needed.",
+                "Execute the correct script and report the real result.",
+                "Do not recreate or redesign the skill in this stage.",
+            ]
+
+        return "\n".join(
+            [
+                *header,
+                "",
+                *context_lines,
+                "",
+                "Stage instructions:",
+                *[f"- {line}" for line in instructions],
+            ]
+        )
+
+    def _should_short_circuit_stage(self, policy: StagePolicy) -> bool:
+        return (
+            policy.name == "ask_references"
+            or (
+                policy.name == "discover_existing_skill"
+                and not policy.allowed_tool_names
+                and not self.runtime.list_skills()
+            )
+        )
+
+    def _build_short_circuit_response(self, policy: StagePolicy) -> dict[str, Any]:
+        if policy.name == "ask_references":
+            text = (
+                "可以，我会为这个需求创建一个新的技能。\n\n"
+                "在继续之前，请告诉我是否有可参考的资料，例如业务规则、数据库字段说明、接口文档、样例查询或现成流程。"
+                "如果没有，请直接回复“没有”。"
+            )
+        else:
+            goal = self.user_goal or "这个需求"
+            text = (
+                f"当前没有可用的技能可以直接处理“{goal}”。\n\n"
+                "您是否希望我为您创建一个新的技能来处理这个需求？"
+            )
+        return _text_response(text)
+
+    def _stage_session_id(self, stage_name: str) -> str:
+        return f"{self.session_id}-call{self.next_call_id:03d}-{stage_name}"
+
+    def _stage_output_path(self, stage_name: str) -> Path:
+        return (self.output_path / f"{self.next_call_id:03d}_{stage_name}").resolve()
 
     def _maybe_capture_user_goal(self, query: str) -> None:
         if not query:
@@ -253,7 +431,17 @@ def build_data_agent_session(
         source_config,
         runtime=runtime,
         output_path=rendered_path,
-        stage_instructions=initial_policy.prompt_overlay,
+        system_instructions=(
+            "You are SkillCreatorAgent.\n"
+            "Current stage: discover_existing_skill\n"
+            "Do only the work required for the current stage.\n"
+            "Original user goal: Unknown goal\n"
+            "Stage instructions:\n"
+            "- Only determine whether an existing skill can solve the goal.\n"
+            "- If no skill matches, ask only whether a new skill should be created.\n"
+            "- Keep the response concise."
+        ),
+        system_constraints=initial_policy.constraints,
         allowed_local_tool_names=initial_policy.allowed_tool_names,
     )
     data_agent = DataAgent.from_config(rendered_path)
@@ -321,7 +509,21 @@ def _new_session_id() -> str:
     return f"skill-creator-{uuid.uuid4().hex[:12]}"
 
 
+def _text_response(text: str) -> dict[str, Any]:
+    return {"messages": [type("Msg", (), {"content": text})()]}
+
+
 def _reset_ferry_singletons() -> None:
+    registry = getattr(tool_manager, "tool_registry", None)
+    if hasattr(tool_manager, "clear_internal_state"):
+        tool_manager.clear_internal_state()
+    if hasattr(tool_manager, "_skills"):
+        tool_manager._skills.clear()
+    if registry is not None:
+        if hasattr(registry, "_tools"):
+            registry._tools = {}
+        if hasattr(registry, "_functions"):
+            registry._functions = {}
     tool_manager.reset_instance()
     llm_manager.llm_cache.clear()
 
@@ -331,104 +533,73 @@ def _discover_existing_skill_policy(*, runtime: SkillCreatorRuntime) -> StagePol
     if not available_skills:
         return StagePolicy(
             name="discover_existing_skill",
-            prompt_overlay=(
-                "This turn is only for initial skill discovery and reuse. "
-                "There are currently zero registered skills in the runtime. "
-                "Do not call any skill inspection tools. "
-                "Do not inspect graph data. Do not create or modify any files in this turn. "
-                "Explain that no matching skill exists and ask only whether a new skill should be created. "
-                "Do not ask for reference documentation, schemas, business rules, examples, or risk definitions yet. "
-                "Do not bundle Step 2 questions into this response."
-            ),
             allowed_tool_names=set(),
+            constraints=(
+                "No tools are available in this stage. Do not invent tools, file listing, or pseudo tool calls. "
+                "If no skill metadata exists, ask directly whether a new skill should be created."
+            ),
         )
 
     return StagePolicy(
         name="discover_existing_skill",
-        prompt_overlay=(
-            "This turn is only for initial skill discovery and reuse. "
-            "Inspect existing skills first. If an existing skill can solve the task, explain that choice and use it. "
-            "Only inspect skill names that were returned by list_available_skills in this turn or already exist in the runtime registry. "
-            "Never invent skill names. "
-            "If no existing skill matches, stop after asking only whether a new skill should be created. "
-            "Do not ask for reference documentation, schemas, business rules, examples, or risk definitions yet. "
-            "Do not inspect graph data. Do not execute skill scripts. Do not create or modify any files in this turn."
-        ),
         allowed_tool_names=set(SKILL_READ_TOOL_NAMES),
+        constraints=(
+            "Use only the registered skill inspection tools in this stage. "
+            "Do not invent tool calls or inspect the filesystem outside those tools."
+        ),
     )
 
 
 def _ask_references_policy() -> StagePolicy:
     return StagePolicy(
         name="ask_references",
-        prompt_overlay=(
-            "This turn is Step 2 only. The user has already confirmed that a new skill should be created. "
-            "Do not ask whether the skill should be created again. "
-            "Ask only for reference documentation, schemas, examples, sample commands, or business rules. "
-            "If no reference material exists, ask the user to explicitly say that none is available. "
-            "Do not call any tools. Do not inspect graph data. "
-            "Do not create or modify any files. "
-            "Keep the reply focused on this single documentation question."
-        ),
         allowed_tool_names=set(),
+        constraints="No tools are available in this stage. Ask only the documentation question.",
     )
 
 
-def _propose_plan_policy(*, graph_enabled: bool) -> StagePolicy:
+def _inspect_schema_policy(*, graph_enabled: bool) -> StagePolicy:
     allowed_tool_names = set(GRAPH_TOOL_NAMES) if graph_enabled else set()
-    prompt_overlay = (
-        "This turn is only for understanding the available schema/data and proposing the execution flow in natural language. "
-        "The user has already answered the documentation question in this turn. "
-        "Treat short answers such as '没有', '没有文档', or '没有文档支撑' as explicit confirmation that no reference documentation is available. "
-        "Do not ask whether the user has documentation again. "
-        "Instead, acknowledge the lack of documentation, inspect only the minimum graph/schema information required, "
-        "then present the planned skill behavior and wait for explicit approval to create the skill. "
-        "Do not create or modify any files in this turn."
+    return StagePolicy(
+        name="inspect_schema",
+        allowed_tool_names=allowed_tool_names,
+        constraints=(
+            "Use only the registered graph tools in this stage. "
+            "Return only a concise schema handoff summary and do not address the user directly."
+        ),
     )
-    if not graph_enabled:
-        prompt_overlay += " Graph access is disabled, so rely only on the user-provided information."
+
+
+def _propose_plan_policy() -> StagePolicy:
     return StagePolicy(
         name="propose_plan",
-        prompt_overlay=prompt_overlay,
-        allowed_tool_names=allowed_tool_names,
+        allowed_tool_names=set(),
+        constraints="No tools are available in this stage. Write only the user-facing execution plan and approval question.",
     )
 
 
-def _create_skill_policy(*, graph_enabled: bool) -> StagePolicy:
+def _create_skill_policy() -> StagePolicy:
     allowed_tool_names = {
         *FILE_TOOL_NAMES,
         *SKILL_READ_TOOL_NAMES,
         *SKILL_CREATION_TOOL_NAMES,
     }
-    if graph_enabled:
-        allowed_tool_names.update(GRAPH_TOOL_NAMES)
     return StagePolicy(
         name="create_skill",
-        prompt_overlay=(
-            "The user has already approved the execution plan. "
-            "Do not ask whether the skill should be created again. "
-            "Do not ask whether the execution flow is correct again. "
-            "You must now create the skill package in this turn. "
-            "Start by calling create_skill_scaffold with a concrete skill name and description inferred from the approved plan and the original user goal. "
-            "Then write or refine the real SKILL.md and script files using write_file or apply_patch. "
-            "Use real graph-backed logic where applicable. Never write mock data, simulated query results, or placeholder scripts. "
-            "After writing the package, call reload_skill, summarize exactly what was created, and only then ask whether the user wants to execute the new skill."
-        ),
         allowed_tool_names=allowed_tool_names,
+        constraints=(
+            "Use only the registered skill creation and file tools in this stage. "
+            "Do not ask for approval again. Create the skill package now."
+        ),
     )
 
 
-def _execute_skill_policy(*, graph_enabled: bool) -> StagePolicy:
+def _execute_skill_policy() -> StagePolicy:
     allowed_tool_names = set(SKILL_EXECUTION_TOOL_NAMES)
-    if graph_enabled:
-        allowed_tool_names.update(GRAPH_TOOL_NAMES)
     return StagePolicy(
         name="execute_skill",
-        prompt_overlay=(
-            "The user has approved execution of an existing or newly created skill. "
-            "Inspect the relevant SKILL.md/scripts if needed, execute the correct script, and report the real result."
-        ),
         allowed_tool_names=allowed_tool_names,
+        constraints="Use only the registered skill inspection and execution tools in this stage.",
     )
 
 
@@ -481,6 +652,10 @@ def _looks_like_create_confirmation(text: str) -> bool:
         "希望我为您创建",
         "是否要创建一个新的 skill",
         "是否要创建这个新技能",
+        "是否需要创建一个新技能",
+        "是否需要创建新的技能",
+        "是否应该创建一个新技能",
+        "请问是否需要创建一个新技能",
         "请确认是否要创建",
         "请问您希望我为您创建",
         "would you like me to create",
@@ -531,3 +706,50 @@ def _looks_like_execute_request(text: str) -> bool:
         "run the new skill",
     ]
     return any(signal.lower() in text.lower() for signal in signals)
+
+
+def _is_negative_reference_reply(text: str) -> bool:
+    normalized = text.strip().lower()
+    negatives = {
+        "没有",
+        "没有文档",
+        "没有文档支撑",
+        "没有参考文档",
+        "没有可用的参考文档",
+        "无",
+        "none",
+        "no",
+    }
+    return normalized in negatives or "没有" in normalized
+
+
+def _compact_text(text: str, *, limit: int) -> str:
+    normalized = " ".join(part.strip() for part in text.splitlines() if part.strip())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def _internal_stage_query(stage_name: str) -> str:
+    if stage_name == "inspect_schema":
+        return "Inspect the minimum schema and data needed for the goal, then return only the requested schema handoff summary."
+    if stage_name == "propose_plan":
+        return "Use the available handoff summaries to produce the user-facing execution plan and ask for approval."
+    return ""
+
+
+def _extract_created_skill_name(text: str) -> str | None:
+    markers = [
+        "技能名称：",
+        "技能名称:",
+        "skill name:",
+        "skill name：",
+    ]
+    for line in text.splitlines():
+        stripped = line.strip()
+        for marker in markers:
+            if stripped.lower().startswith(marker.lower()):
+                value = stripped.split(marker, 1)[1].strip(" `")
+                if value:
+                    return value
+    return None

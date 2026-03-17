@@ -132,6 +132,8 @@ def build_ferry_config(
     *,
     runtime: SkillCreatorRuntime,
     stage_instructions: str | None = None,
+    system_instructions: str | None = None,
+    system_constraints: str | None = None,
     allowed_local_tool_names: set[str] | list[str] | None = None,
 ) -> dict[str, Any]:
     user_config = dict(config or {})
@@ -139,6 +141,8 @@ def build_ferry_config(
         runtime=runtime,
         config=user_config,
         stage_instructions=stage_instructions,
+        system_instructions=system_instructions,
+        system_constraints=system_constraints,
     )
     merged = _deep_merge(base_config, user_config)
     return _normalize_ferry_config(
@@ -154,6 +158,8 @@ def materialize_ferry_config(
     runtime: SkillCreatorRuntime,
     output_path: str | Path,
     stage_instructions: str | None = None,
+    system_instructions: str | None = None,
+    system_constraints: str | None = None,
     allowed_local_tool_names: set[str] | list[str] | None = None,
 ) -> Path:
     target = Path(output_path).expanduser().resolve()
@@ -162,6 +168,8 @@ def materialize_ferry_config(
         config,
         runtime=runtime,
         stage_instructions=stage_instructions,
+        system_instructions=system_instructions,
+        system_constraints=system_constraints,
         allowed_local_tool_names=allowed_local_tool_names,
     )
     target.write_text(
@@ -176,6 +184,8 @@ def _build_default_ferry_config(
     runtime: SkillCreatorRuntime,
     config: Mapping[str, Any] | None,
     stage_instructions: str | None = None,
+    system_instructions: str | None = None,
+    system_constraints: str | None = None,
 ) -> dict[str, Any]:
     chat_model_name = _resolve_chat_model_name(config)
     return {
@@ -200,8 +210,13 @@ def _build_default_ferry_config(
         },
         "SCENARIO": {
             "chat": {
-                "instructions": _compose_instructions(runtime, stage_instructions=stage_instructions),
-                "constraints": (
+                "instructions": _compose_instructions(
+                    runtime,
+                    stage_instructions=stage_instructions,
+                    system_instructions=system_instructions,
+                ),
+                "constraints": system_constraints
+                or (
                     "Use the dedicated skill runtime tools to inspect and execute existing skills. "
                     "When no matching skill exists, preserve the original workflow gates exactly: "
                     "after the user agrees to create a skill, your next turn must only ask for reference "
@@ -300,7 +315,14 @@ def _normalize_ferry_config(
     return normalized
 
 
-def _compose_instructions(runtime: SkillCreatorRuntime, *, stage_instructions: str | None) -> str:
+def _compose_instructions(
+    runtime: SkillCreatorRuntime,
+    *,
+    stage_instructions: str | None,
+    system_instructions: str | None = None,
+) -> str:
+    if system_instructions:
+        return system_instructions.strip()
     base_instructions = runtime.build_system_prompt().rstrip()
     if not stage_instructions:
         return base_instructions

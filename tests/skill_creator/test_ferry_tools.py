@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from skill_creator_agent.data_agent_bridge import _reset_ferry_singletons
 from skill_creator_agent.ferry_config import DEFAULT_GRAPH_TOOLS, DEFAULT_RUNTIME_TOOLS
 from skill_creator_agent.ferry_tools import configure_runtime_tools, reset_runtime_tools
 from skill_creator_agent.runtime import SkillCreatorRuntime
@@ -16,7 +17,7 @@ def test_skill_creator_tools_register_with_ferry_tool_manager(tmp_path):
         }
     )
     configure_runtime_tools(runtime=runtime)
-    ToolManager.reset_instance()
+    _reset_ferry_singletons()
 
     try:
         manager = ToolManager()
@@ -35,7 +36,7 @@ def test_skill_creator_tools_register_with_ferry_tool_manager(tmp_path):
         assert reloaded.success is True
         assert any(skill["name"] == "tool-created-skill" for skill in listed.data)
     finally:
-        ToolManager.reset_instance()
+        _reset_ferry_singletons()
         reset_runtime_tools()
 
 
@@ -87,7 +88,7 @@ def test_graph_tools_register_with_ferry_tool_manager(tmp_path):
 
     runtime._graph_connector = StubGraphConnector()
     configure_runtime_tools(runtime=runtime)
-    ToolManager.reset_instance()
+    _reset_ferry_singletons()
 
     try:
         manager = ToolManager()
@@ -108,5 +109,5 @@ def test_graph_tools_register_with_ferry_tool_manager(tmp_path):
         assert hop.data[0]["accurate_flag"] is True
         assert count.data == 5
     finally:
-        ToolManager.reset_instance()
+        _reset_ferry_singletons()
         reset_runtime_tools()
