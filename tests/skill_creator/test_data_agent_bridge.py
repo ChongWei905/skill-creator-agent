@@ -98,9 +98,11 @@ def test_discovery_stage_does_not_expose_execute_tool(tmp_path):
 
     config = session.preview_turn_ferry_config("我想查看当前银行用户中哪些是有风险的用户")
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
+    instructions = config["SCENARIO"]["chat"]["instructions"]
 
     assert "list_available_skills" in tool_names
-    assert "execute_skill_script" not in tool_names
+    assert "execute_skill_script" in tool_names
+    assert "execute it in this same turn" in instructions
 
 
 def test_discovery_stage_with_no_registered_skills_exposes_no_tools(tmp_path):

@@ -286,7 +286,10 @@ class DataAgentSession:
             else:
                 context_lines.append("- None")
             instructions = [
-                "Only determine whether an existing skill can solve the goal.",
+                "First determine whether an existing skill can solve the goal.",
+                "If a matching skill exists and the user is asking for an actual result, inspect the skill as needed and execute it in this same turn.",
+                "Do not stop after merely saying that a matching skill exists.",
+                "Prefer the minimum inspection needed before calling execute_skill_script.",
                 "If no skill matches, ask only whether a new skill should be created.",
                 "Do not ask for reference documentation or business rules yet.",
                 "If the allowed tools list is empty, do not invent tools, filesystem inspection, or pseudo tool calls.",
@@ -561,9 +564,10 @@ def _discover_existing_skill_policy(*, runtime: SkillCreatorRuntime) -> StagePol
 
     return StagePolicy(
         name="discover_existing_skill",
-        allowed_tool_names=set(SKILL_READ_TOOL_NAMES),
+        allowed_tool_names=set(SKILL_EXECUTION_TOOL_NAMES),
         constraints=(
-            "Use only the registered skill inspection tools in this stage. "
+            "Use only the registered skill inspection and execution tools in this stage. "
+            "If a matching skill can directly satisfy the user goal, execute it instead of only describing it. "
             "Do not invent tool calls or inspect the filesystem outside those tools."
         ),
     )
