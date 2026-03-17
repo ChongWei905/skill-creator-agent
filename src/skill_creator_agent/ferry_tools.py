@@ -87,8 +87,18 @@ def create_skill_scaffold(
     Provide:
     - `skill_name`: a filesystem-safe slug such as `risk-customer-query`
     - `description`: one concise sentence describing what the skill does
-    - `body`: optional initial SKILL.md body content
-    - `script_files`: optional mapping like `{\"query.py\": \"print('hello')\"}`
+    - `body`: optional initial SKILL.md body content, but prefer leaving this minimal
+    - `script_files`: optional starter files, but prefer creating substantive files later with
+      `write_file` or `apply_patch`
+
+    Important:
+    - The first scaffold call should usually contain only a slugified `skill_name` and description
+    - Keep the scaffolded `SKILL.md` YAML frontmatter valid: `name` must stay equal to the
+      directory slug, and you should not add a separate `slug` field
+    - For graph-backed skills, generate Python scripts that use
+      `from connectors import GraphConnector`
+    - Read `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` from the environment inside those scripts
+    - Do not hardcode sqlite/local database paths or fallback demo datasets
 
     After this tool succeeds, continue refining the created files with `write_file` or
     `apply_patch`, then call `reload_skill` to register the finished skill from disk.

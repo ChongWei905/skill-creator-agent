@@ -43,6 +43,51 @@ def test_runtime_executes_script_and_returns_structured_result():
     assert result["stderr"] == ""
 
 
+def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
+    runtime = SkillCreatorRuntime.from_config(
+        {
+            "SKILL_CREATOR": {
+                "skills_root": str(tmp_path / "temp-skill-root"),
+                "graph_enabled": True,
+                "graph_base_url": "http://127.0.0.1:8000",
+                "graph_timeout": 45,
+            }
+        }
+    )
+
+    runtime.create_skill_scaffold(
+        "connector-compat-skill",
+        "Checks GraphConnector compatibility imports.",
+        body="# Connector Compat Skill",
+        script_files={
+            "check_connector.py": (
+                "import json\n"
+                "import os\n"
+                "from connectors import GraphConnector\n\n"
+                "connector = GraphConnector(\n"
+                "    base_url=os.getenv('GRAPH_DB_BASE_URL', ''),\n"
+                "    timeout=int(os.getenv('GRAPH_DB_TIMEOUT', '0')),\n"
+                ")\n"
+                "print(json.dumps({\n"
+                "    'connector_class': connector.__class__.__name__,\n"
+                "    'base_url': connector.base_url,\n"
+                "    'timeout': connector.timeout,\n"
+                "}, ensure_ascii=False))\n"
+            )
+        },
+    )
+    runtime.reload_skill("connector-compat-skill")
+
+    result = runtime.execute_skill_script("connector-compat-skill", "check_connector")
+
+    assert result["exit_code"] == 0
+    assert '"connector_class": "GraphConnector"' in result["stdout"]
+    assert '"base_url": "http://127.0.0.1:8000"' in result["stdout"]
+    assert '"timeout": 45' in result["stdout"]
+    assert "Traceback" not in result["stderr"]
+    assert "ImportError" not in result["stderr"]
+
+
 def test_runtime_builds_system_prompt_with_skill_context_and_reminder():
     runtime = SkillCreatorRuntime.from_config(
         {

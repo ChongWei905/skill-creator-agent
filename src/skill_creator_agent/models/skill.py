@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from skill_creator_agent.paths import project_path
+
 
 @dataclass
 class SkillScript:
@@ -33,11 +35,17 @@ class SkillScript:
 
         run_cwd = cwd.resolve() if cwd else self.infer_default_cwd()
         if self.language == "python":
-            pythonpath = str(run_cwd)
-            if run_env.get("PYTHONPATH"):
-                run_env["PYTHONPATH"] = f"{pythonpath}{os.pathsep}{run_env['PYTHONPATH']}"
-            else:
-                run_env["PYTHONPATH"] = pythonpath
+            pythonpath_entries = [
+                str(project_path("src")),
+                str(project_path()),
+                str(run_cwd),
+            ]
+            existing_pythonpath = run_env.get("PYTHONPATH")
+            if existing_pythonpath:
+                pythonpath_entries.append(existing_pythonpath)
+            run_env["PYTHONPATH"] = os.pathsep.join(
+                entry for entry in pythonpath_entries if entry
+            )
 
         try:
             result = subprocess.run(

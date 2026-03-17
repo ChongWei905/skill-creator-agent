@@ -10,6 +10,7 @@ from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
     _inspect_schema_policy,
     _looks_like_create_confirmation,
+    _propose_plan_policy,
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
@@ -186,7 +187,17 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
 
     assert "Current stage: create_skill" in instructions
     assert "Do not ask for approval again." in instructions
-    assert "Start with create_skill_scaffold" in instructions
+    assert "Start with create_skill_scaffold using a slugified `skill_name`" in instructions
+    assert "Do not put large bodies, SQL files, config files, or script content into the initial create_skill_scaffold call." in instructions
+    assert "from connectors import GraphConnector" in instructions
+    assert "GRAPH_DB_BASE_URL" in instructions
+    assert "GRAPH_DB_TIMEOUT" in instructions
+    assert "GraphConnector(base_url=base_url, timeout=timeout)" in instructions
+    assert '{"customer_description": "CONTAINS ' in instructions
+    assert 'Do not use nested filter objects like' in instructions
+    assert "Do not hardcode graph URLs, sqlite paths, local database file paths" in instructions
+    assert "The frontmatter `name` must stay equal to the directory slug" in instructions
+    assert "Do not add a separate `slug` field" in instructions
     assert "create_skill_scaffold" in tool_names
     assert "reload_skill" in tool_names
     assert "write_file" in tool_names
@@ -223,6 +234,32 @@ def test_propose_plan_stage_does_not_advance_when_assistant_repeats_doc_question
     )
 
     assert session.workflow_stage == "awaiting_plan_approval"
+
+
+def test_propose_plan_stage_prefers_graph_connector_python_plan(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-plan",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_plan_approval",
+        user_goal="帮我查看数据库中有风险的用户",
+        reference_summary="没有参考文档",
+        schema_summary="SCHEMA SUMMARY: Person, customer_description",
+    )
+
+    config = session._build_turn_ferry_config(_propose_plan_policy())
+    instructions = config["SCENARIO"]["chat"]["instructions"]
+
+    assert "Propose a filesystem-safe skill slug" in instructions
+    assert "from connectors import GraphConnector" in instructions
+    assert "Do not propose sqlite files, local database configs" in instructions
+    assert "prefer a small Python execution script plus SKILL.md" in instructions
 
 
 def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp_path):
