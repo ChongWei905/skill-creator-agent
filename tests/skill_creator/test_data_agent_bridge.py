@@ -80,6 +80,25 @@ def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
     assert config["TOOLS"]["local_functions"] == []
 
 
+def test_discovery_stage_does_not_expose_execute_tool(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-0",
+        output_root=tmp_path / "outputs",
+        workflow_stage="idle",
+    )
+
+    config = session.preview_turn_ferry_config("我想查看当前银行用户中哪些是有风险的用户")
+    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
+
+    assert "list_available_skills" in tool_names
+    assert "execute_skill_script" not in tool_names
+
+
 def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     session = DataAgentSession(
         data_agent=object(),
@@ -98,6 +117,7 @@ def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
     assert "planned skill behavior" in config["SCENARIO"]["chat"]["instructions"]
+    assert "Do not ask whether the user has documentation again." in config["SCENARIO"]["chat"]["instructions"]
     assert "graph_get_object_types" in tool_names
     assert "create_skill_scaffold" not in tool_names
     assert "write_file" not in tool_names
@@ -111,3 +131,25 @@ def test_create_confirmation_detection_matches_real_chinese_prompt():
     )
 
     assert _looks_like_create_confirmation(assistant_text) is True
+
+
+def test_propose_plan_stage_does_not_advance_when_assistant_repeats_doc_question(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-3",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_reference_answer",
+    )
+
+    session._advance_workflow_stage(
+        session.resolve_turn_policy("没有"),
+        "您是否有任何关于用户风险分析的参考文档可以帮助指导技能创建？",
+    )
+
+    assert session.workflow_stage == "awaiting_reference_answer"

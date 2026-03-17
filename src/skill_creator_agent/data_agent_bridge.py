@@ -127,10 +127,22 @@ class DataAgentSession:
 
     def _advance_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> None:
         if policy.name == "ask_references":
+            if _looks_like_reference_request(assistant_text):
+                self.workflow_stage = "awaiting_reference_answer"
+                return
+            if _looks_like_plan_approval_request(assistant_text):
+                self.workflow_stage = "awaiting_plan_approval"
+                return
             self.workflow_stage = "awaiting_reference_answer"
             return
         if policy.name == "propose_plan":
-            self.workflow_stage = "awaiting_plan_approval"
+            if _looks_like_plan_approval_request(assistant_text):
+                self.workflow_stage = "awaiting_plan_approval"
+                return
+            if _looks_like_execute_request(assistant_text):
+                self.workflow_stage = "awaiting_execute_confirmation"
+                return
+            self.workflow_stage = "awaiting_reference_answer"
             return
         if policy.name == "create_skill":
             if _looks_like_execute_request(assistant_text):
@@ -293,7 +305,7 @@ def _discover_existing_skill_policy() -> StagePolicy:
             "If no existing skill matches, stop after asking whether a new skill should be created. "
             "Do not inspect graph data. Do not create or modify any files in this turn."
         ),
-        allowed_tool_names=set(SKILL_EXECUTION_TOOL_NAMES),
+        allowed_tool_names=set(SKILL_READ_TOOL_NAMES),
     )
 
 
@@ -313,7 +325,11 @@ def _propose_plan_policy(*, graph_enabled: bool) -> StagePolicy:
     allowed_tool_names = set(GRAPH_TOOL_NAMES) if graph_enabled else set()
     prompt_overlay = (
         "This turn is only for understanding the available schema/data and proposing the execution flow in natural language. "
-        "Inspect only the minimum graph/schema information required, then present the planned skill behavior and wait for explicit approval. "
+        "The user has already answered the documentation question in this turn. "
+        "Treat short answers such as '没有', '没有文档', or '没有文档支撑' as explicit confirmation that no reference documentation is available. "
+        "Do not ask whether the user has documentation again. "
+        "Instead, acknowledge the lack of documentation, inspect only the minimum graph/schema information required, "
+        "then present the planned skill behavior and wait for explicit approval. "
         "Do not create or modify any files in this turn."
     )
     if not graph_enabled:
