@@ -49,18 +49,19 @@ class GraphConnector:
     def property_filter(
         self,
         element_class: str,
-        element_type: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        filter_dict: dict[str, Any] | None = None,
         *,
         get_all_properties: bool = False,
     ) -> list[dict[str, Any]]:
+        element_class, element_type = self._normalize_element_target(element_class, element_type)
         output_raw = self._request(
             "POST",
             "/api/v1/search/property_filter",
             {
                 "element_class": element_class,
                 "element_type": element_type,
-                "filter_dict": filter_dict,
+                "filter_dict": filter_dict or {},
                 "get_all_properties": get_all_properties,
             },
         )
@@ -87,16 +88,17 @@ class GraphConnector:
     def count_search(
         self,
         element_class: str,
-        element_type: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        filter_dict: dict[str, Any] | None = None,
     ) -> int:
+        element_class, element_type = self._normalize_element_target(element_class, element_type)
         result = self._request(
             "POST",
             "/api/v1/search/count_search",
             {
                 "element_class": element_class,
                 "element_type": element_type,
-                "filter_dict": filter_dict,
+                "filter_dict": filter_dict or {},
             },
         )
         if result and isinstance(result[0], dict):
@@ -106,11 +108,14 @@ class GraphConnector:
     def aggregate_search(
         self,
         element_class: str,
-        element_type: str,
-        target_property: str,
-        agg_func: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        target_property: str | None = None,
+        agg_func: str | None = None,
+        filter_dict: dict[str, Any] | None = None,
     ) -> Any:
+        if not target_property or not agg_func:
+            raise ValueError("target_property and agg_func are required")
+        element_class, element_type = self._normalize_element_target(element_class, element_type)
         result = self._request(
             "POST",
             "/api/v1/search/aggregate_search",
@@ -119,7 +124,7 @@ class GraphConnector:
                 "element_type": element_type,
                 "target_property": target_property,
                 "agg": agg_func,
-                "filter_dict": filter_dict,
+                "filter_dict": filter_dict or {},
             },
         )
         if result and isinstance(result[0], dict):
@@ -133,12 +138,14 @@ class GraphConnector:
     def sorted_search(
         self,
         element_class: str,
-        element_type: str,
+        element_type: str = "NODE",
         filter_dict: dict[str, Any] | None = None,
         return_properties: list[str] | None = None,
         sort_by: str | None = None,
         ascending: bool = True,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        element_class, element_type = self._normalize_element_target(element_class, element_type)
         payload: dict[str, Any] = {
             "element_class": element_class,
             "element_type": element_type,
@@ -150,7 +157,10 @@ class GraphConnector:
         if sort_by is not None:
             payload["sort_by"] = sort_by
             payload["ascending"] = ascending
-        return self._request("POST", "/api/v1/search/sorted_search", payload)
+        result = self._request("POST", "/api/v1/search/sorted_search", payload)
+        if limit is not None:
+            return result[:limit]
+        return result
 
     def pattern_search(
         self,
@@ -167,9 +177,12 @@ class GraphConnector:
     def property_info_search(
         self,
         element_class: str,
-        element_type: str,
-        element_uuid: str,
+        element_type: str = "NODE",
+        element_uuid: str | None = None,
     ) -> dict[str, Any]:
+        if not element_uuid:
+            raise ValueError("element_uuid is required")
+        element_class, element_type = self._normalize_element_target(element_class, element_type)
         result = self._request(
             "POST",
             "/api/v1/search/property_info_search",
@@ -229,3 +242,15 @@ class GraphConnector:
             else:
                 normalized.append(name)
         return normalized
+
+    @staticmethod
+    def _normalize_element_target(element_class: str, element_type: str | None) -> tuple[str, str]:
+        normalized_type = (element_type or "NODE").upper()
+        if normalized_type in {"NODE", "EDGE"}:
+            return element_class, normalized_type
+
+        generic_classes = {"entity", "element", "node", "nodes", "class"}
+        if element_class.strip().lower() in generic_classes:
+            return str(element_type), "NODE"
+
+        return element_class, "NODE"

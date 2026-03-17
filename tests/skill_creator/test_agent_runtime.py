@@ -67,6 +67,8 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch)
     assert "graph_property_info" in local_tool_names
     assert "graph_hop_search" in local_tool_names
     assert "graph_count_search" in local_tool_names
+    assert "your next turn must only ask for reference documentation" in config["SCENARIO"]["chat"]["constraints"]
+    assert "Never write mock data" in config["SCENARIO"]["chat"]["constraints"]
     assert config["TOOLS"]["skills"][0]["name"] == "skill-creator-smoke"
     assert config["SKILL_CREATOR"]["graph_base_url"] == "http://127.0.0.1:8000"
 

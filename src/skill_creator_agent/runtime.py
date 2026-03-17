@@ -145,8 +145,8 @@ class SkillCreatorRuntime:
     def graph_property_filter(
         self,
         element_class: str,
-        element_type: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        filter_dict: dict[str, Any] | None = None,
         *,
         get_all_properties: bool = False,
     ) -> list[dict[str, Any]]:
@@ -160,8 +160,8 @@ class SkillCreatorRuntime:
     def graph_property_info(
         self,
         element_class: str,
-        element_type: str,
-        element_uuid: str,
+        element_type: str = "NODE",
+        element_uuid: str | None = None,
     ) -> dict[str, Any]:
         return self.get_graph_connector().property_info_search(
             element_class,
@@ -184,8 +184,8 @@ class SkillCreatorRuntime:
     def graph_count_search(
         self,
         element_class: str,
-        element_type: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        filter_dict: dict[str, Any] | None = None,
     ) -> int:
         return self.get_graph_connector().count_search(
             element_class,
@@ -196,10 +196,10 @@ class SkillCreatorRuntime:
     def graph_aggregate_search(
         self,
         element_class: str,
-        element_type: str,
-        target_property: str,
-        agg_func: str,
-        filter_dict: dict[str, Any],
+        element_type: str = "NODE",
+        target_property: str | None = None,
+        agg_func: str | None = None,
+        filter_dict: dict[str, Any] | None = None,
     ) -> Any:
         return self.get_graph_connector().aggregate_search(
             element_class,
@@ -212,19 +212,25 @@ class SkillCreatorRuntime:
     def graph_sorted_search(
         self,
         element_class: str,
-        element_type: str,
+        element_type: str = "NODE",
         filter_dict: dict[str, Any] | None = None,
         return_properties: list[str] | None = None,
         sort_by: str | None = None,
         ascending: bool = True,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        kwargs: dict[str, Any] = {
+            "filter_dict": filter_dict,
+            "return_properties": return_properties,
+            "sort_by": sort_by,
+            "ascending": ascending,
+        }
+        if limit is not None:
+            kwargs["limit"] = limit
         return self.get_graph_connector().sorted_search(
             element_class,
             element_type,
-            filter_dict=filter_dict,
-            return_properties=return_properties,
-            sort_by=sort_by,
-            ascending=ascending,
+            **kwargs,
         )
 
     def graph_pattern_search(

@@ -121,8 +121,8 @@ def graph_query_examples(
 
 def graph_property_filter(
     element_class: str,
-    element_type: str,
-    filter_dict: dict[str, Any],
+    element_type: str = "NODE",
+    filter_dict: dict[str, Any] | None = None,
     get_all_properties: bool = False,
 ) -> list[dict[str, Any]]:
     """Filter graph elements by property conditions."""
@@ -136,8 +136,8 @@ def graph_property_filter(
 
 def graph_property_info(
     element_class: str,
-    element_type: str,
-    element_uuid: str,
+    element_type: str = "NODE",
+    element_uuid: str | None = None,
 ) -> dict[str, Any]:
     """Get full property information for a specific graph element."""
     return get_runtime_tools().graph_property_info(
@@ -162,8 +162,8 @@ def graph_hop_search(
 
 def graph_count_search(
     element_class: str,
-    element_type: str,
-    filter_dict: dict[str, Any],
+    element_type: str = "NODE",
+    filter_dict: dict[str, Any] | None = None,
 ) -> int:
     """Count graph elements that satisfy a filter."""
     return get_runtime_tools().graph_count_search(
@@ -175,10 +175,10 @@ def graph_count_search(
 
 def graph_aggregate_search(
     element_class: str,
-    element_type: str,
-    target_property: str,
-    agg_func: str,
-    filter_dict: dict[str, Any],
+    element_type: str = "NODE",
+    target_property: str | None = None,
+    agg_func: str | None = None,
+    filter_dict: dict[str, Any] | None = None,
 ) -> Any:
     """Aggregate a graph property using COUNT/SUM/AVG/MIN/MAX."""
     return get_runtime_tools().graph_aggregate_search(
@@ -192,11 +192,12 @@ def graph_aggregate_search(
 
 def graph_sorted_search(
     element_class: str,
-    element_type: str,
+    element_type: str = "NODE",
     filter_dict: dict[str, Any] | None = None,
     return_properties: list[str] | None = None,
     sort_by: str | None = None,
     ascending: bool = True,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return graph query results with server-side sorting."""
     return get_runtime_tools().graph_sorted_search(
@@ -206,6 +207,7 @@ def graph_sorted_search(
         return_properties=return_properties,
         sort_by=sort_by,
         ascending=ascending,
+        limit=limit,
     )
 
 

@@ -181,9 +181,17 @@ def _build_default_ferry_config(*, runtime: SkillCreatorRuntime, config: Mapping
                 "instructions": runtime.build_system_prompt(),
                 "constraints": (
                     "Use the dedicated skill runtime tools to inspect and execute existing skills. "
-                    "When you need to create a new skill, first call `create_skill_scaffold` to create a valid "
-                    "directory layout, then use `write_file` or `apply_patch` to refine SKILL.md and script files, "
-                    "and finally call `reload_skill` before executing the new skill."
+                    "When no matching skill exists, preserve the original workflow gates exactly: "
+                    "after the user agrees to create a skill, your next turn must only ask for reference "
+                    "documentation or an explicit confirmation that none is available. "
+                    "Do not inspect graph schema, create files, call `create_skill_scaffold`, `write_file`, "
+                    "`apply_patch`, or `reload_skill` until the user has answered the documentation question. "
+                    "After that, inspect only the required graph/schema information, present a natural-language "
+                    "execution plan, and wait for explicit approval. "
+                    "Only after that approval may you call `create_skill_scaffold` to create a valid directory "
+                    "layout, then use `write_file` or `apply_patch` to refine SKILL.md and script files, and "
+                    "finally call `reload_skill` before asking whether to execute the new skill. "
+                    "Never write mock data, placeholder scripts, or simulated query results into a newly created skill."
                 ),
             }
         },

@@ -63,3 +63,23 @@ def test_graph_connector_count_search_extracts_integer():
     result = connector.count_search("Organ", "NODE", {})
 
     assert result == 11
+
+
+def test_graph_connector_property_filter_normalizes_generic_element_target():
+    connector = RecordingGraphConnector()
+
+    connector.property_filter("entity", "Person", {"逾期多次标识": "是"})
+
+    _, _, payload = connector.calls[-1]
+    assert payload["element_class"] == "Person"
+    assert payload["element_type"] == "NODE"
+
+
+def test_graph_connector_sorted_search_accepts_limit_passthrough():
+    connector = RecordingGraphConnector()
+
+    result = connector.sorted_search("Organ", "NODE", sort_by="name", limit=1)
+
+    assert result == []
+    _, _, payload = connector.calls[-1]
+    assert payload["sort_by"] == "name"
