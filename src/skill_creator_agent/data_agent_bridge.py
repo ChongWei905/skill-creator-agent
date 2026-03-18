@@ -14,7 +14,25 @@ from ferry.interface.sdk.agent import DataAgent
 from skill_creator_agent.ferry_config import materialize_ferry_config
 from skill_creator_agent.ferry_tools import configure_runtime_tools
 from skill_creator_agent.paths import package_path, project_path
-from skill_creator_agent.prompts import load_skill_creation_step5
+from skill_creator_agent.prompts import (
+    GRAPH_DB_INSTRUCTION,
+    SKILL_EXECUTION_REMINDER,
+    STAGE_CONTEXT_ASK_REFERENCES,
+    STAGE_CONTEXT_CREATE_SKILL,
+    STAGE_CONTEXT_DISCOVER_EXISTING_SKILL,
+    STAGE_CONTEXT_EXECUTE_SKILL,
+    STAGE_CONTEXT_INSPECT_SCHEMA,
+    STAGE_CONTEXT_PROPOSE_PLAN,
+    STAGE_CONTEXT_WRITE_SKILL_DOC,
+    STAGE_CONTEXT_WRITE_SKILL_SCRIPT,
+    load_prompt,
+    load_skill_creation_step1,
+    load_skill_creation_step2,
+    load_skill_creation_step3,
+    load_skill_creation_step4,
+    load_skill_creation_step5,
+    load_skill_creation_step6,
+)
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
 DEFAULT_VERIFICATION_CONFIG = package_path("skill_creator_debug.yaml")
@@ -54,6 +72,26 @@ SKILL_CREATION_TOOL_NAMES = {
     "create_skill_scaffold",
     "reload_skill",
 }
+STAGE_CONTEXT_PROMPTS = {
+    "discover_existing_skill": STAGE_CONTEXT_DISCOVER_EXISTING_SKILL,
+    "ask_references": STAGE_CONTEXT_ASK_REFERENCES,
+    "inspect_schema": STAGE_CONTEXT_INSPECT_SCHEMA,
+    "propose_plan": STAGE_CONTEXT_PROPOSE_PLAN,
+    "create_skill": STAGE_CONTEXT_CREATE_SKILL,
+    "write_skill_doc": STAGE_CONTEXT_WRITE_SKILL_DOC,
+    "write_skill_script": STAGE_CONTEXT_WRITE_SKILL_SCRIPT,
+    "execute_skill": STAGE_CONTEXT_EXECUTE_SKILL,
+}
+STAGE_WORKFLOW_LOADERS = {
+    "discover_existing_skill": load_skill_creation_step1,
+    "ask_references": load_skill_creation_step2,
+    "inspect_schema": load_skill_creation_step3,
+    "propose_plan": load_skill_creation_step4,
+    "create_skill": load_skill_creation_step5,
+    "write_skill_doc": load_skill_creation_step5,
+    "write_skill_script": load_skill_creation_step5,
+    "execute_skill": load_skill_creation_step6,
+}
 
 
 @dataclass(frozen=True)
@@ -61,6 +99,62 @@ class StagePolicy:
     name: str
     allowed_tool_names: set[str]
     constraints: str = "Follow the current stage exactly. Use only the registered tools for this stage."
+
+
+def _format_allowed_tools(allowed_tool_names: set[str]) -> str:
+    allowed_tools = sorted(allowed_tool_names)
+    return ", ".join(allowed_tools) if allowed_tools else "none"
+
+
+def _format_skill_metadata(runtime: SkillCreatorRuntime) -> str:
+    skills = runtime.list_skills()
+    if not skills:
+        return "- None"
+    return "\n".join(f"- {skill['name']}: {skill['description']}" for skill in skills[:20])
+
+
+def _load_stage_workflow_excerpt(stage_name: str) -> str:
+    loader = STAGE_WORKFLOW_LOADERS.get(stage_name)
+    return loader() if loader is not None else ""
+
+
+def _render_stage_system_prompt(
+    *,
+    policy: StagePolicy,
+    runtime: SkillCreatorRuntime,
+    query: str,
+    user_goal: str,
+    reference_summary: str,
+    schema_summary: str,
+    structured_schema_handoff: str,
+    plan_summary: str,
+    created_skill_summary: str,
+    created_skill_name: str,
+) -> str:
+    template_name = STAGE_CONTEXT_PROMPTS[policy.name]
+    goal = user_goal or query or "Unknown goal"
+    execution_reminder = ""
+    if policy.name == "execute_skill":
+        execution_reminder = load_prompt(
+            SKILL_EXECUTION_REMINDER,
+            skill_name=created_skill_name or "the created skill",
+            original_intent=goal,
+        )
+    return load_prompt(
+        template_name,
+        user_goal=goal,
+        allowed_tools=_format_allowed_tools(policy.allowed_tool_names),
+        skill_metadata=_format_skill_metadata(runtime),
+        reference_summary=reference_summary or "None provided.",
+        schema_summary=schema_summary or "No schema summary available.",
+        structured_schema_handoff=structured_schema_handoff or "No structured schema handoff available.",
+        plan_summary=plan_summary or "No approved plan summary available.",
+        created_skill_summary=created_skill_summary or "No created skill summary available.",
+        created_skill_name=created_skill_name or "unknown",
+        workflow_excerpt=_load_stage_workflow_excerpt(policy.name),
+        graph_db_instruction=load_prompt(GRAPH_DB_INSTRUCTION),
+        execution_reminder=execution_reminder,
+    )
 
 
 @dataclass
@@ -308,170 +402,17 @@ class DataAgentSession:
         )
 
     def _build_stage_system_prompt(self, policy: StagePolicy, query: str) -> str:
-        header = [
-            "You are SkillCreatorAgent.",
-            f"Current stage: {policy.name}",
-            "Do only the work required for the current stage.",
-            "Do not mention hidden stage orchestration or internal handoff summaries.",
-            "Never narrate your internal reasoning, stage transitions, or tool eligibility checks.",
-            "Output only the assistant message that should be shown to the user.",
-        ]
-        allowed_tools = sorted(policy.allowed_tool_names)
-        goal = self.user_goal or query or "Unknown goal"
-        context_lines = [f"Original user goal: {goal}"]
-        context_lines.append(
-            "Allowed tools for this stage: "
-            + (", ".join(allowed_tools) if allowed_tools else "none")
-        )
-
-        if policy.name == "discover_existing_skill":
-            context_lines.append("Available skill metadata:")
-            skills = self.runtime.list_skills()
-            if skills:
-                for skill in skills[:20]:
-                    context_lines.append(f"- {skill['name']}: {skill['description']}")
-            else:
-                context_lines.append("- None")
-            instructions = [
-                "First determine whether an existing skill can solve the goal.",
-                "If a matching skill exists and the user is asking for an actual result, inspect the skill as needed and execute it in this same turn.",
-                "Do not stop after merely saying that a matching skill exists.",
-                "Prefer the minimum inspection needed before calling execute_skill_script.",
-                "If no skill matches, ask only whether a new skill should be created.",
-                "Do not ask for reference documentation or business rules yet.",
-                "If the allowed tools list is empty, do not invent tools, filesystem inspection, or pseudo tool calls.",
-                "Keep the response concise and user-facing.",
-                "When no skill matches, reply with a direct question asking whether a new skill should be created.",
-            ]
-        elif policy.name == "ask_references":
-            instructions = [
-                "The user has already confirmed that a new skill should be created.",
-                "Ask only for reference documentation, schemas, examples, sample commands, or business rules.",
-                "If there is no supporting material, ask the user to reply clearly that none is available.",
-                "Keep the reply to a single focused user-facing question.",
-            ]
-        elif policy.name == "inspect_schema":
-            context_lines.append(f"Reference summary: {self.reference_summary or 'None provided.'}")
-            instructions = [
-                "Inspect only the minimum graph/schema information required for the goal.",
-                "Do not address the user.",
-                "Do not propose the final execution plan yet.",
-                "Return only a concise internal handoff summary in this format:",
-                "SCHEMA SUMMARY:",
-                "- relevant entities:",
-                "- key properties:",
-                "- useful filters:",
-                "- caveats:",
-            ]
-        elif policy.name == "propose_plan":
-            context_lines.append(f"Reference summary: {self.reference_summary or 'None provided.'}")
-            context_lines.append(f"Schema summary: {self.schema_summary or 'No schema summary available.'}")
-            context_lines.append(
-                "Structured schema handoff:\n"
-                + (self.structured_schema_handoff or "No structured schema handoff available.")
-            )
-            instructions = [
-                "Use only the reference summary and schema summary above.",
-                "Write a user-facing natural-language execution plan.",
-                "The plan must include a proposed skill name, data sources, query/filter logic, and files to create.",
-                "Propose a filesystem-safe skill slug using lowercase letters, numbers, and hyphens only.",
-                "If graph access is required, plan for a Python script that uses `from connectors import GraphConnector`.",
-                "Do not propose sqlite files, local database configs, hardcoded URLs, or ad hoc SQL files unless the user explicitly asked for them.",
-                "For graph-backed skills, prefer a small Python execution script plus SKILL.md over extra config files.",
-                "End by asking for explicit approval to create the skill.",
-                "Do not call any tools.",
-            ]
-        elif policy.name == "create_skill":
-            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
-            context_lines.append(
-                "Structured schema handoff:\n"
-                + (self.structured_schema_handoff or "No structured schema handoff available.")
-            )
-            context_lines.append(
-                "Original Step 5 template excerpt:\n"
-                + load_skill_creation_step5()
-            )
-            instructions = [
-                "The user has already approved the plan.",
-                "Do not ask for approval again.",
-                "Create the skill package in this turn.",
-                "Start with create_skill_scaffold using a slugified `skill_name` and a one-sentence description only.",
-                "Do not put large bodies, SQL files, config files, or script content into the initial create_skill_scaffold call.",
-                "After the scaffold exists, write or patch the real SKILL.md and scripts, then call reload_skill.",
-                "Do not use graph tools in this stage.",
-                "Preserve the YAML frontmatter in SKILL.md.",
-                "The frontmatter `name` must stay equal to the directory slug created by create_skill_scaffold.",
-                "Do not add a separate `slug` field, and do not replace `name` with a human-readable title.",
-                "When editing SKILL.md, prefer reading the scaffolded file first and then patching the body while keeping the existing frontmatter block.",
-                "Generate fully functional scripts with real business logic. Do not write mock data, placeholder TODOs, or simulated query results.",
-                "For graph database access, write Python scripts that import GraphConnector with `from connectors import GraphConnector`.",
-                "Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.",
-                "Initialize the connector with those environment variables, for example `GraphConnector(base_url=base_url, timeout=timeout)`.",
-                "Use GraphConnector instance methods directly without any `graph_` prefix, for example `connector.property_filter(element_class='Person', element_type='NODE', filter_dict={...}, get_all_properties=True)`.",
-                "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries.",
-                "Access fields directly as `row.get('name')`, `row.get('party_id')`, `row.get('customer_description')`, `row.get('organ_code')`, and `row.get('uuid')`.",
-                "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access in generated Python code for `get_all_properties=True` results.",
-                "For `property_filter`, pass string expressions such as `{\"customer_description\": \"CONTAINS '潜在风险客户标识:是'\"}`.",
-                "Do not use nested filter objects like `{\"customer_description\": {\"$contains\": \"...\"}}`.",
-                "Do not hardcode graph URLs, sqlite paths, local database file paths, or fallback demo datasets.",
-                "If the approved plan depends on graph data, the created script must execute against GraphConnector instead of sqlite or ad hoc local SQL.",
-                "When choosing property names inside generated Python code, prefer the exact property keys shown in the structured schema handoff and examples above.",
-                "After creation, summarize exactly what was created and ask whether to execute the new skill.",
-            ]
-        elif policy.name == "write_skill_doc":
-            context_lines.append(f"Created skill slug: {self.created_skill_name or 'unknown'}")
-            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
-            instructions = [
-                "Only update the scaffolded SKILL.md in this stage.",
-                "Read the existing SKILL.md first, then update it with complete documentation.",
-                "Preserve the YAML frontmatter block exactly and keep `name` equal to the created skill slug.",
-                "Do not create scripts in this stage.",
-                "Do not call reload_skill in this stage.",
-                "Do not address the user directly.",
-                "Keep the final assistant message short and purely internal, for example: SKILL.md updated.",
-            ]
-        elif policy.name == "write_skill_script":
-            context_lines.append(f"Created skill slug: {self.created_skill_name or 'unknown'}")
-            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
-            context_lines.append(
-                "Structured schema handoff:\n"
-                + (self.structured_schema_handoff or "No structured schema handoff available.")
-            )
-            context_lines.append(
-                "Original Step 5 template excerpt:\n"
-                + load_skill_creation_step5()
-            )
-            instructions = [
-                "Only create or update the execution scripts in this stage.",
-                "Read the current SKILL.md before writing the script so the script matches the documented contract.",
-                "Do not rewrite SKILL.md unless absolutely required for consistency.",
-                "Write fully functional graph-backed Python code using `from connectors import GraphConnector`.",
-                "Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.",
-                "Use GraphConnector instance methods directly without any `graph_` prefix.",
-                "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries.",
-                "Access fields directly as `row.get('name')`, `row.get('party_id')`, `row.get('customer_description')`, `row.get('organ_code')`, and `row.get('uuid')`.",
-                "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access.",
-                "Do not call reload_skill in this stage.",
-                "Do not address the user directly.",
-                "Keep the final assistant message short and purely internal, for example: scripts updated.",
-            ]
-        else:
-            context_lines.append(f"Created skill summary: {self.created_skill_summary or 'No created skill summary available.'}")
-            instructions = [
-                "Inspect the created or existing skill only as needed.",
-                "Execute the correct script and report the real result.",
-                "Do not recreate or redesign the skill in this stage.",
-            ]
-
-        return "\n".join(
-            [
-                *header,
-                "",
-                *context_lines,
-                "",
-                "Stage instructions:",
-                *[f"- {line}" for line in instructions],
-            ]
+        return _render_stage_system_prompt(
+            policy=policy,
+            runtime=self.runtime,
+            query=query,
+            user_goal=self.user_goal,
+            reference_summary=self.reference_summary,
+            schema_summary=self.schema_summary,
+            structured_schema_handoff=self.structured_schema_handoff,
+            plan_summary=self.plan_summary,
+            created_skill_summary=self.created_skill_summary,
+            created_skill_name=self.created_skill_name,
         )
 
     def _build_structured_schema_handoff(self) -> str:
@@ -640,15 +581,17 @@ def build_data_agent_session(
         source_config,
         runtime=runtime,
         output_path=rendered_path,
-        system_instructions=(
-            "You are SkillCreatorAgent.\n"
-            "Current stage: discover_existing_skill\n"
-            "Do only the work required for the current stage.\n"
-            "Original user goal: Unknown goal\n"
-            "Stage instructions:\n"
-            "- Only determine whether an existing skill can solve the goal.\n"
-            "- If no skill matches, ask only whether a new skill should be created.\n"
-            "- Keep the response concise."
+        system_instructions=_render_stage_system_prompt(
+            policy=initial_policy,
+            runtime=runtime,
+            query="",
+            user_goal="",
+            reference_summary="",
+            schema_summary="",
+            structured_schema_handoff="",
+            plan_summary="",
+            created_skill_summary="",
+            created_skill_name="",
         ),
         system_constraints=initial_policy.constraints,
         allowed_local_tool_names=initial_policy.allowed_tool_names,

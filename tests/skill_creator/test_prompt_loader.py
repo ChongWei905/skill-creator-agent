@@ -14,7 +14,12 @@ from skill_creator_agent.prompts import (
     SYSTEM_PROMPT_DIRECT_QUERY,
     available_prompts,
     load_prompt,
+    load_skill_creation_step1,
+    load_skill_creation_step2,
+    load_skill_creation_step3,
+    load_skill_creation_step4,
     load_skill_creation_step5,
+    load_skill_creation_step6,
     prompt_path,
 )
 
@@ -71,5 +76,44 @@ def test_load_skill_creation_step5_matches_original_section():
     original = (WORKFLOW_SVC_PROMPTS / "skill_creation_workflow.md").read_text(encoding="utf-8")
     start = original.index("### **Step 5: Create Complete Skill Package**")
     end = original.index("### Step 6: Execution-Time Graph Queries (When Running the Skill)")
+
+    assert current == original[start:end].strip()
+
+
+@pytest.mark.parametrize(
+    ("loader", "start_marker", "end_marker"),
+    [
+        (
+            load_skill_creation_step1,
+            "### Step 1: Confirm Skill Creation Need",
+            "### Step 2: Gather Reference Documentation (If Available)",
+        ),
+        (
+            load_skill_creation_step2,
+            "### Step 2: Gather Reference Documentation (If Available)",
+            "### Step 3: Query Graph Database Schema (CRITICAL - DO NOT SKIP)",
+        ),
+        (
+            load_skill_creation_step3,
+            "### Step 3: Query Graph Database Schema (CRITICAL - DO NOT SKIP)",
+            "### Step 4: Design and Present Execution Flow (CRITICAL - MUST GET USER APPROVAL)",
+        ),
+        (
+            load_skill_creation_step4,
+            "### Step 4: Design and Present Execution Flow (CRITICAL - MUST GET USER APPROVAL)",
+            "### **Step 5: Create Complete Skill Package**",
+        ),
+        (
+            load_skill_creation_step6,
+            "### Step 6: Execution-Time Graph Queries (When Running the Skill)",
+            None,
+        ),
+    ],
+)
+def test_load_skill_creation_sections_match_original(loader, start_marker, end_marker):
+    current = loader()
+    original = (WORKFLOW_SVC_PROMPTS / "skill_creation_workflow.md").read_text(encoding="utf-8")
+    start = original.index(start_marker)
+    end = len(original) if end_marker is None else original.index(end_marker)
 
     assert current == original[start:end].strip()

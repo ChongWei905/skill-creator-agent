@@ -10,6 +10,14 @@ GRAPH_DB_INSTRUCTION = "graph_db_instruction"
 SKILL_EXECUTION_REMINDER = "skill_execution_reminder"
 NO_SKILL_FALLBACK = "no_skill_fallback"
 NO_SKILL_FALLBACK_DIRECT = "no_skill_fallback_direct"
+STAGE_CONTEXT_DISCOVER_EXISTING_SKILL = "stage_context_discover_existing_skill"
+STAGE_CONTEXT_ASK_REFERENCES = "stage_context_ask_references"
+STAGE_CONTEXT_INSPECT_SCHEMA = "stage_context_inspect_schema"
+STAGE_CONTEXT_PROPOSE_PLAN = "stage_context_propose_plan"
+STAGE_CONTEXT_CREATE_SKILL = "stage_context_create_skill"
+STAGE_CONTEXT_WRITE_SKILL_DOC = "stage_context_write_skill_doc"
+STAGE_CONTEXT_WRITE_SKILL_SCRIPT = "stage_context_write_skill_script"
+STAGE_CONTEXT_EXECUTE_SKILL = "stage_context_execute_skill"
 
 PROMPTS = (
     GRAPH_DB_INSTRUCTION,
@@ -17,11 +25,23 @@ PROMPTS = (
     NO_SKILL_FALLBACK_DIRECT,
     SKILL_CREATION_WORKFLOW,
     SKILL_EXECUTION_REMINDER,
+    STAGE_CONTEXT_ASK_REFERENCES,
+    STAGE_CONTEXT_CREATE_SKILL,
+    STAGE_CONTEXT_DISCOVER_EXISTING_SKILL,
+    STAGE_CONTEXT_EXECUTE_SKILL,
+    STAGE_CONTEXT_INSPECT_SCHEMA,
+    STAGE_CONTEXT_PROPOSE_PLAN,
+    STAGE_CONTEXT_WRITE_SKILL_DOC,
+    STAGE_CONTEXT_WRITE_SKILL_SCRIPT,
     SYSTEM_PROMPT_BASE,
     SYSTEM_PROMPT_DIRECT_QUERY,
 )
 
 _PLACEHOLDER_PATTERN = re.compile(r"{([A-Za-z_][A-Za-z0-9_]*)}")
+STEP_1_START_MARKER = "### Step 1: Confirm Skill Creation Need"
+STEP_2_START_MARKER = "### Step 2: Gather Reference Documentation (If Available)"
+STEP_3_START_MARKER = "### Step 3: Query Graph Database Schema (CRITICAL - DO NOT SKIP)"
+STEP_4_START_MARKER = "### Step 4: Design and Present Execution Flow (CRITICAL - MUST GET USER APPROVAL)"
 STEP_5_START_MARKER = "### **Step 5: Create Complete Skill Package**"
 STEP_6_START_MARKER = "### Step 6: Execution-Time Graph Queries (When Running the Skill)"
 
@@ -72,4 +92,44 @@ def load_skill_creation_step5() -> str:
         SKILL_CREATION_WORKFLOW,
         start_marker=STEP_5_START_MARKER,
         end_marker=STEP_6_START_MARKER,
+    )
+
+
+def load_skill_creation_step1() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_1_START_MARKER,
+        end_marker=STEP_2_START_MARKER,
+    )
+
+
+def load_skill_creation_step2() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_2_START_MARKER,
+        end_marker=STEP_3_START_MARKER,
+    )
+
+
+def load_skill_creation_step3() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_3_START_MARKER,
+        end_marker=STEP_4_START_MARKER,
+    )
+
+
+def load_skill_creation_step4() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_4_START_MARKER,
+        end_marker=STEP_5_START_MARKER,
+    )
+
+
+def load_skill_creation_step6() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_6_START_MARKER,
+        end_marker=None,
     )
