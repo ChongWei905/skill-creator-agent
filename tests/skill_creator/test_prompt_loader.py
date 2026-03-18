@@ -14,6 +14,7 @@ from skill_creator_agent.prompts import (
     SYSTEM_PROMPT_DIRECT_QUERY,
     available_prompts,
     load_prompt,
+    load_skill_creation_step5,
     prompt_path,
 )
 
@@ -63,3 +64,12 @@ def test_prompt_markdown_matches_workflow_svc_sources():
         current = prompt_path(prompt_name).read_text(encoding="utf-8")
         original = (WORKFLOW_SVC_PROMPTS / f"{prompt_name}.md").read_text(encoding="utf-8")
         assert current == original, prompt_name
+
+
+def test_load_skill_creation_step5_matches_original_section():
+    current = load_skill_creation_step5()
+    original = (WORKFLOW_SVC_PROMPTS / "skill_creation_workflow.md").read_text(encoding="utf-8")
+    start = original.index("### **Step 5: Create Complete Skill Package**")
+    end = original.index("### Step 6: Execution-Time Graph Queries (When Running the Skill)")
+
+    assert current == original[start:end].strip()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from ferry.interface.sdk.agent import DataAgent
 from skill_creator_agent.ferry_config import materialize_ferry_config
 from skill_creator_agent.ferry_tools import configure_runtime_tools
 from skill_creator_agent.paths import package_path, project_path
+from skill_creator_agent.prompts import load_skill_creation_step5
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
 DEFAULT_VERIFICATION_CONFIG = package_path("skill_creator_debug.yaml")
@@ -79,6 +81,7 @@ class DataAgentSession:
     reference_summary: str = ""
     no_references: bool = False
     schema_summary: str = ""
+    structured_schema_handoff: str = ""
     plan_summary: str = ""
     created_skill_summary: str = ""
     created_skill_name: str = ""
@@ -122,6 +125,7 @@ class DataAgentSession:
         self.reference_summary = ""
         self.no_references = False
         self.schema_summary = ""
+        self.structured_schema_handoff = ""
         self.plan_summary = ""
         self.created_skill_summary = ""
         self.created_skill_name = ""
@@ -193,8 +197,10 @@ class DataAgentSession:
                 clear_history=True,
             )
             self.schema_summary = _compact_text(extract_last_message_text(schema_response), limit=2200)
+            self.structured_schema_handoff = self._build_structured_schema_handoff()
         else:
             self.schema_summary = "Graph access is disabled. Rely only on the user-provided requirements."
+            self.structured_schema_handoff = "Structured schema handoff unavailable because graph access is disabled."
 
         plan_response = await self._run_stage(
             _propose_plan_policy(),
@@ -319,6 +325,10 @@ class DataAgentSession:
         elif policy.name == "propose_plan":
             context_lines.append(f"Reference summary: {self.reference_summary or 'None provided.'}")
             context_lines.append(f"Schema summary: {self.schema_summary or 'No schema summary available.'}")
+            context_lines.append(
+                "Structured schema handoff:\n"
+                + (self.structured_schema_handoff or "No structured schema handoff available.")
+            )
             instructions = [
                 "Use only the reference summary and schema summary above.",
                 "Write a user-facing natural-language execution plan.",
@@ -332,6 +342,14 @@ class DataAgentSession:
             ]
         elif policy.name == "create_skill":
             context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
+            context_lines.append(
+                "Structured schema handoff:\n"
+                + (self.structured_schema_handoff or "No structured schema handoff available.")
+            )
+            context_lines.append(
+                "Original Step 5 template excerpt:\n"
+                + load_skill_creation_step5()
+            )
             instructions = [
                 "The user has already approved the plan.",
                 "Do not ask for approval again.",
@@ -349,10 +367,14 @@ class DataAgentSession:
                 "Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.",
                 "Initialize the connector with those environment variables, for example `GraphConnector(base_url=base_url, timeout=timeout)`.",
                 "Use GraphConnector instance methods directly without any `graph_` prefix, for example `connector.property_filter(element_class='Person', element_type='NODE', filter_dict={...}, get_all_properties=True)`.",
+                "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries.",
+                "Access fields directly as `row.get('name')`, `row.get('party_id')`, `row.get('customer_description')`, `row.get('organ_code')`, and `row.get('uuid')`.",
+                "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access in generated Python code for `get_all_properties=True` results.",
                 "For `property_filter`, pass string expressions such as `{\"customer_description\": \"CONTAINS '潜在风险客户标识:是'\"}`.",
                 "Do not use nested filter objects like `{\"customer_description\": {\"$contains\": \"...\"}}`.",
                 "Do not hardcode graph URLs, sqlite paths, local database file paths, or fallback demo datasets.",
                 "If the approved plan depends on graph data, the created script must execute against GraphConnector instead of sqlite or ad hoc local SQL.",
+                "When choosing property names inside generated Python code, prefer the exact property keys shown in the structured schema handoff and examples above.",
                 "After creation, summarize exactly what was created and ask whether to execute the new skill.",
             ]
         else:
@@ -373,6 +395,93 @@ class DataAgentSession:
                 *[f"- {line}" for line in instructions],
             ]
         )
+
+    def _build_structured_schema_handoff(self) -> str:
+        if not self.runtime.settings.graph_enabled:
+            return "Graph access is disabled."
+
+        entities = self._extract_relevant_entities()
+        if not entities:
+            return "No relevant graph entities were identified from the schema summary."
+
+        handoff_lines = ["STRUCTURED SCHEMA HANDOFF:"]
+        useful_filters = _extract_schema_line(self.schema_summary, "useful filters")
+        if useful_filters:
+            handoff_lines.append(f"- useful filters: {useful_filters}")
+        handoff_lines.append(
+            "- flat result shape: when GraphConnector.property_filter(..., get_all_properties=True) is used, "
+            "each returned item is already a flat property dict."
+        )
+
+        for entity_name in entities[:3]:
+            try:
+                schema = self.runtime.graph_get_entity_schema(entity_name)
+                examples = self.runtime.graph_query_examples(entity_name, limit=1)
+            except Exception as exc:
+                handoff_lines.append(f"- entity: {entity_name} (schema unavailable: {exc})")
+                continue
+
+            sample_properties = schema.get("sample_properties", {}) if isinstance(schema, dict) else {}
+            if not isinstance(sample_properties, dict):
+                sample_properties = {}
+            field_names = sorted(sample_properties.keys())
+            key_fields = field_names[:8]
+            handoff_lines.append(f"- entity: {entity_name}")
+            handoff_lines.append(f"  fields: {', '.join(key_fields) if key_fields else 'none'}")
+
+            sample_uuid = ""
+            if examples and isinstance(examples[0], dict):
+                sample_uuid = str(examples[0].get("uuid", ""))
+            if sample_uuid:
+                handoff_lines.append(f"  sample uuid: {sample_uuid}")
+
+            example_fields = self._select_example_fields(sample_properties)
+            if example_fields:
+                handoff_lines.append("  sample values:")
+                for field_name, field_value in example_fields.items():
+                    handoff_lines.append(f"    {field_name}: {_format_example_value(field_value)}")
+
+        return "\n".join(handoff_lines)
+
+    def _extract_relevant_entities(self) -> list[str]:
+        try:
+            available_entities = self.runtime.graph_get_object_types()
+        except Exception:
+            available_entities = []
+
+        combined_text = "\n".join(
+            part for part in [self.user_goal, self.reference_summary, self.schema_summary, self.plan_summary] if part
+        )
+        matches: list[str] = []
+        for entity_name in available_entities:
+            if re.search(rf"\b{re.escape(entity_name)}\b", combined_text):
+                matches.append(entity_name)
+
+        if matches:
+            return matches
+
+        if any(token in combined_text for token in ["用户", "客户", "risk", "风险"]):
+            if "Person" in available_entities:
+                return ["Person"]
+
+        return available_entities[:1]
+
+    @staticmethod
+    def _select_example_fields(sample_properties: dict[str, Any]) -> dict[str, Any]:
+        preferred_fields = [
+            "name",
+            "party_id",
+            "customer_description",
+            "balance",
+            "organ_code",
+            "uuid",
+            "id",
+        ]
+        selected: dict[str, Any] = {}
+        for field_name in preferred_fields:
+            if field_name in sample_properties:
+                selected[field_name] = sample_properties[field_name]
+        return selected
 
     def _should_short_circuit_stage(self, policy: StagePolicy) -> bool:
         return (
@@ -751,6 +860,22 @@ def _compact_text(text: str, *, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3].rstrip() + "..."
+
+
+def _extract_schema_line(text: str, label: str) -> str:
+    pattern = re.compile(rf"-\s*{re.escape(label)}:\s*(.+)")
+    for line in text.splitlines():
+        match = pattern.search(line)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _format_example_value(value: Any) -> str:
+    text = str(value)
+    if len(text) <= 160:
+        return text
+    return text[:157].rstrip() + "..."
 
 
 def _internal_stage_query(stage_name: str) -> str:

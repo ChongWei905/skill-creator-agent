@@ -22,6 +22,8 @@ PROMPTS = (
 )
 
 _PLACEHOLDER_PATTERN = re.compile(r"{([A-Za-z_][A-Za-z0-9_]*)}")
+STEP_5_START_MARKER = "### **Step 5: Create Complete Skill Package**"
+STEP_6_START_MARKER = "### Step 6: Execution-Time Graph Queries (When Running the Skill)"
 
 
 def available_prompts() -> tuple[str, ...]:
@@ -47,3 +49,27 @@ def load_prompt(prompt_name: str, **kwargs: object) -> str:
         return str(kwargs[key])
 
     return _PLACEHOLDER_PATTERN.sub(replace, content)
+
+
+def load_prompt_section(prompt_name: str, *, start_marker: str, end_marker: str | None = None) -> str:
+    content = load_prompt(prompt_name)
+    start_index = content.find(start_marker)
+    if start_index < 0:
+        raise ValueError(f"Start marker not found in prompt '{prompt_name}': {start_marker}")
+
+    if end_marker is None:
+        end_index = len(content)
+    else:
+        end_index = content.find(end_marker, start_index)
+        if end_index < 0:
+            raise ValueError(f"End marker not found in prompt '{prompt_name}': {end_marker}")
+
+    return content[start_index:end_index].strip()
+
+
+def load_skill_creation_step5() -> str:
+    return load_prompt_section(
+        SKILL_CREATION_WORKFLOW,
+        start_marker=STEP_5_START_MARKER,
+        end_marker=STEP_6_START_MARKER,
+    )

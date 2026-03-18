@@ -189,12 +189,17 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
 
     assert "Current stage: create_skill" in instructions
     assert "Do not ask for approval again." in instructions
+    assert "Structured schema handoff:" in instructions
+    assert "Original Step 5 template excerpt:" in instructions
+    assert "### **Step 5: Create Complete Skill Package**" in instructions
     assert "Start with create_skill_scaffold using a slugified `skill_name`" in instructions
     assert "Do not put large bodies, SQL files, config files, or script content into the initial create_skill_scaffold call." in instructions
     assert "from connectors import GraphConnector" in instructions
     assert "GRAPH_DB_BASE_URL" in instructions
     assert "GRAPH_DB_TIMEOUT" in instructions
     assert "GraphConnector(base_url=base_url, timeout=timeout)" in instructions
+    assert "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries." in instructions
+    assert "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access" in instructions
     assert '{"customer_description": "CONTAINS ' in instructions
     assert 'Do not use nested filter objects like' in instructions
     assert "Do not hardcode graph URLs, sqlite paths, local database file paths" in instructions
@@ -284,6 +289,33 @@ def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp
         {"messages": [type("Msg", (), {"content": "这是执行方案，请审批。"})()]},
     ]
 
+    monkeypatch.setattr(session.runtime, "graph_get_object_types", lambda: ["Person"])
+    monkeypatch.setattr(
+        session.runtime,
+        "graph_get_entity_schema",
+        lambda entity_type: {
+            "entity_type": entity_type,
+            "sample_properties": {
+                "name": "测试客户",
+                "party_id": "P001",
+                "customer_description": "潜在风险客户标识:是",
+                "uuid": "Person_001",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        session.runtime,
+        "graph_query_examples",
+        lambda entity_type, limit=1: [
+            {
+                "name": "测试客户",
+                "party_id": "P001",
+                "customer_description": "潜在风险客户标识:是",
+                "uuid": "Person_001",
+            }
+        ],
+    )
+
     async def fake_run_stage(policy, query, *, clear_history):
         return responses.pop(0)
 
@@ -295,6 +327,9 @@ def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp
 
     assert "执行方案" in extract_last_message_text(result)
     assert "Person" in session.schema_summary
+    assert "STRUCTURED SCHEMA HANDOFF:" in session.structured_schema_handoff
+    assert "flat result shape" in session.structured_schema_handoff
+    assert "fields: customer_description, name, party_id, uuid" in session.structured_schema_handoff
     assert session.workflow_stage == "awaiting_plan_approval"
     assert session.active_turn_stage == "propose_plan"
 

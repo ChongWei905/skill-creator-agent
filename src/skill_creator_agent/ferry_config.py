@@ -205,6 +205,7 @@ def _build_default_ferry_config(
                 "model_type": "chat",
                 "params": {
                     "model": "deepseek-chat",
+                    "max_tokens": 8182,
                 },
             }
         },
