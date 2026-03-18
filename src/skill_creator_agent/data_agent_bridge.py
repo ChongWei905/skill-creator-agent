@@ -97,6 +97,10 @@ class DataAgentSession:
             response = await self._handle_reference_answer_turn(normalized)
             self.next_run_id += 1
             return response
+        if self.workflow_stage == "awaiting_plan_approval" and _is_affirmative(normalized):
+            response = await self._handle_create_skill_turn(normalized)
+            self.next_run_id += 1
+            return response
 
         policy = self.resolve_turn_policy(normalized)
         if self._should_short_circuit_stage(policy):
@@ -212,6 +216,43 @@ class DataAgentSession:
         self.active_turn_stage = "propose_plan"
         self.workflow_stage = "awaiting_plan_approval"
         return plan_response
+
+    async def _handle_create_skill_turn(self, query: str) -> dict[str, Any]:
+        skill_name = _extract_planned_skill_slug(self.plan_summary) or _slugify_text(self.user_goal)
+        if not skill_name:
+            skill_name = "generated-skill"
+        description = _build_scaffold_description(self.plan_summary, self.user_goal)
+
+        scaffold_result = self.runtime.create_skill_scaffold(skill_name, description)
+        self.created_skill_name = skill_name
+
+        await self._run_stage(
+            _write_skill_doc_policy(),
+            _internal_stage_query("write_skill_doc"),
+            clear_history=True,
+        )
+        await self._run_stage(
+            _write_skill_script_policy(),
+            _internal_stage_query("write_skill_script"),
+            clear_history=True,
+        )
+        self.runtime.reload_skill(skill_name)
+
+        skill_dir = scaffold_result.get("skill_dir", str((self.runtime.settings.skills_root / skill_name).resolve()))
+        skill_md = scaffold_result.get("skill_md_path", str((self.runtime.settings.skills_root / skill_name / "SKILL.md").resolve()))
+        scripts_dir = scaffold_result.get("scripts_dir", str((self.runtime.settings.skills_root / skill_name / "scripts").resolve()))
+        summary = (
+            f"已创建技能 `{skill_name}`。\n\n"
+            f"- 目录: {skill_dir}\n"
+            f"- 文档: {skill_md}\n"
+            f"- 脚本目录: {scripts_dir}\n\n"
+            "是否立即执行这个新技能来查询风险用户？"
+        )
+        self.created_skill_summary = summary
+        self.last_assistant_text = summary
+        self.active_turn_stage = "create_skill"
+        self.workflow_stage = "awaiting_execute_confirmation"
+        return _text_response(summary)
 
     async def _run_stage(
         self,
@@ -376,6 +417,43 @@ class DataAgentSession:
                 "If the approved plan depends on graph data, the created script must execute against GraphConnector instead of sqlite or ad hoc local SQL.",
                 "When choosing property names inside generated Python code, prefer the exact property keys shown in the structured schema handoff and examples above.",
                 "After creation, summarize exactly what was created and ask whether to execute the new skill.",
+            ]
+        elif policy.name == "write_skill_doc":
+            context_lines.append(f"Created skill slug: {self.created_skill_name or 'unknown'}")
+            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
+            instructions = [
+                "Only update the scaffolded SKILL.md in this stage.",
+                "Read the existing SKILL.md first, then update it with complete documentation.",
+                "Preserve the YAML frontmatter block exactly and keep `name` equal to the created skill slug.",
+                "Do not create scripts in this stage.",
+                "Do not call reload_skill in this stage.",
+                "Do not address the user directly.",
+                "Keep the final assistant message short and purely internal, for example: SKILL.md updated.",
+            ]
+        elif policy.name == "write_skill_script":
+            context_lines.append(f"Created skill slug: {self.created_skill_name or 'unknown'}")
+            context_lines.append(f"Approved plan summary: {self.plan_summary or 'No approved plan summary available.'}")
+            context_lines.append(
+                "Structured schema handoff:\n"
+                + (self.structured_schema_handoff or "No structured schema handoff available.")
+            )
+            context_lines.append(
+                "Original Step 5 template excerpt:\n"
+                + load_skill_creation_step5()
+            )
+            instructions = [
+                "Only create or update the execution scripts in this stage.",
+                "Read the current SKILL.md before writing the script so the script matches the documented contract.",
+                "Do not rewrite SKILL.md unless absolutely required for consistency.",
+                "Write fully functional graph-backed Python code using `from connectors import GraphConnector`.",
+                "Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.",
+                "Use GraphConnector instance methods directly without any `graph_` prefix.",
+                "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries.",
+                "Access fields directly as `row.get('name')`, `row.get('party_id')`, `row.get('customer_description')`, `row.get('organ_code')`, and `row.get('uuid')`.",
+                "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access.",
+                "Do not call reload_skill in this stage.",
+                "Do not address the user directly.",
+                "Keep the final assistant message short and purely internal, for example: scripts updated.",
             ]
         else:
             context_lines.append(f"Created skill summary: {self.created_skill_summary or 'No created skill summary available.'}")
@@ -726,6 +804,28 @@ def _create_skill_policy() -> StagePolicy:
     )
 
 
+def _write_skill_doc_policy() -> StagePolicy:
+    return StagePolicy(
+        name="write_skill_doc",
+        allowed_tool_names={"read_file", "write_file", "apply_patch"},
+        constraints=(
+            "Only update the scaffolded SKILL.md in this stage. "
+            "Do not create scripts or call reload_skill."
+        ),
+    )
+
+
+def _write_skill_script_policy() -> StagePolicy:
+    return StagePolicy(
+        name="write_skill_script",
+        allowed_tool_names={"read_file", "write_file", "apply_patch"},
+        constraints=(
+            "Only create or update execution scripts in this stage. "
+            "Do not call reload_skill or ask the user anything."
+        ),
+    )
+
+
 def _execute_skill_policy() -> StagePolicy:
     allowed_tool_names = set(SKILL_EXECUTION_TOOL_NAMES)
     return StagePolicy(
@@ -883,6 +983,10 @@ def _internal_stage_query(stage_name: str) -> str:
         return "Inspect the minimum schema and data needed for the goal, then return only the requested schema handoff summary."
     if stage_name == "propose_plan":
         return "Use the available handoff summaries to produce the user-facing execution plan and ask for approval."
+    if stage_name == "write_skill_doc":
+        return "Update only the scaffolded SKILL.md so it fully documents the approved skill."
+    if stage_name == "write_skill_script":
+        return "Create or update only the execution script files so the approved skill is runnable."
     return ""
 
 
@@ -901,3 +1005,28 @@ def _extract_created_skill_name(text: str) -> str | None:
                 if value:
                     return value
     return None
+
+
+def _extract_planned_skill_slug(text: str) -> str | None:
+    slug_pattern = re.compile(r"\b[a-z0-9]+(?:-[a-z0-9]+)+\b")
+    for match in slug_pattern.finditer(text):
+        return match.group(0)
+    extracted = _extract_created_skill_name(text)
+    if extracted:
+        slug = _slugify_text(extracted)
+        if slug:
+            return slug
+    return None
+
+
+def _slugify_text(text: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", text.lower())
+    value = value.strip("-")
+    value = re.sub(r"-{2,}", "-", value)
+    return value[:80].strip("-")
+
+
+def _build_scaffold_description(plan_summary: str, user_goal: str) -> str:
+    source = plan_summary or user_goal or "Generated skill"
+    first_line = source.splitlines()[0].strip()
+    return _compact_text(first_line, limit=120)

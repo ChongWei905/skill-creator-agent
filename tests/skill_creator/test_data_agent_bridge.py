@@ -405,3 +405,40 @@ def test_stage_tool_registry_isolation_between_schema_and_create(tmp_path):
 
     assert "create_skill_scaffold" in tool_names
     assert "graph_get_object_types" not in tool_names
+
+
+def test_handle_create_skill_turn_runs_serial_substages(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path / "skills")}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-create-flow",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_plan_approval",
+        user_goal="帮我查看数据库中有风险的用户",
+        plan_summary="建议创建技能 `identify-risky-customers`，使用 GraphConnector 查询 Person 风险客户。",
+    )
+
+    stage_calls: list[str] = []
+    reload_calls: list[str] = []
+
+    async def fake_run_stage(policy, query, *, clear_history):
+        stage_calls.append(policy.name)
+        return {"messages": [type("Msg", (), {"content": f"{policy.name} done"})()]}
+
+    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(session.runtime, "reload_skill", lambda name: reload_calls.append(name) or object())
+
+    import asyncio
+
+    result = asyncio.run(session.ask("批准，请创建"))
+    text = extract_last_message_text(result)
+
+    assert stage_calls == ["write_skill_doc", "write_skill_script"]
+    assert reload_calls == ["identify-risky-customers"]
+    assert session.created_skill_name == "identify-risky-customers"
+    assert session.workflow_stage == "awaiting_execute_confirmation"
+    assert "identify-risky-customers" in text
+    assert (tmp_path / "skills" / "identify-risky-customers" / "SKILL.md").exists()
