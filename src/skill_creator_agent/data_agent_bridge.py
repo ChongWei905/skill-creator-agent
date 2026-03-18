@@ -207,7 +207,8 @@ class DataAgentSession:
 
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
         normalized = query.strip()
-        self._maybe_capture_user_goal(normalized)
+        if normalized and self.workflow_stage == "idle":
+            self.user_goal = normalized
         if self.workflow_stage in CONFIRMATION_ROUTE_CHOICES:
             response = await self._handle_confirmation_turn(normalized, clear_history=clear_history)
             self.next_run_id += 1
@@ -614,15 +615,6 @@ class DataAgentSession:
     def _stage_output_path(self, stage_name: str) -> Path:
         return (self.output_path / f"{self.next_call_id:03d}_{stage_name}").resolve()
 
-    def _maybe_capture_user_goal(self, query: str) -> None:
-        if not query:
-            return
-        if self.next_run_id == 0 and not _is_short_control_reply(query):
-            self.user_goal = query
-            return
-        if self.workflow_stage == "idle" and not _is_short_control_reply(query):
-            self.user_goal = query
-
 
 def build_data_agent_session(
     config: str | Path | Mapping[str, Any] | None = None,
@@ -867,76 +859,6 @@ def _execute_skill_policy() -> StagePolicy:
         allowed_tool_names=allowed_tool_names,
         constraints="Use only the registered skill inspection and execution tools in this stage.",
     )
-
-
-def _is_affirmative(text: str) -> bool:
-    normalized = text.strip().lower()
-    positives = {
-        "yes",
-        "y",
-        "ok",
-        "okay",
-        "sure",
-        "go ahead",
-        "create it",
-        "创建吧",
-        "创建",
-        "是",
-        "是的",
-        "好的",
-        "好",
-        "可以",
-        "行",
-        "确认",
-        "批准",
-        "批准吧",
-        "批准创建",
-        "同意",
-        "同意创建",
-        "通过",
-        "approve",
-        "approved",
-        "proceed",
-        "continue",
-        "开始吧",
-        "执行吧",
-        "运行吧",
-    }
-    return normalized in positives or any(
-        token in normalized
-        for token in [
-            "创建吧",
-            "创建",
-            "可以",
-            "确认",
-            "批准",
-            "同意",
-            "通过",
-            "approve",
-            "approved",
-            "proceed",
-            "continue",
-            "执行吧",
-            "运行吧",
-        ]
-    )
-
-
-def _is_short_control_reply(text: str) -> bool:
-    normalized = text.strip().lower()
-    negatives = {
-        "no",
-        "n",
-        "没有",
-        "没有文档",
-        "没有文档支撑",
-        "无",
-        "不用",
-        "不需要",
-    }
-    if _is_affirmative(normalized):
-        return True
-    return normalized in negatives
 
 
 def _is_negative_reference_reply(text: str) -> bool:

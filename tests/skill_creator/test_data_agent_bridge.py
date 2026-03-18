@@ -22,6 +22,10 @@ from skill_creator_agent.runtime import SkillCreatorRuntime
 from skill_creator_agent.paths import package_path
 
 
+async def _async_value(value):
+    return value
+
+
 def test_load_config_dict_reads_yaml_file():
     config = load_config_dict(package_path("skill_creator_debug.yaml"))
 
@@ -145,6 +149,57 @@ def test_stage_prompt_keeps_original_user_goal_across_short_replies(tmp_path):
     config = session.preview_turn_ferry_config("没有")
 
     assert "Original user goal: 帮我查看数据库中有风险的用户" in config["SCENARIO"]["chat"]["instructions"]
+
+
+def test_idle_turn_explicitly_sets_user_goal(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-goal-idle",
+        output_root=tmp_path / "outputs",
+        workflow_stage="idle",
+        user_goal="旧目标",
+    )
+
+    async def fake_run_stage(policy, query, *, clear_history):
+        return {"messages": [type("Msg", (), {"content": "需要先创建技能吗？"})()]}
+
+    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(session, "_route_discovery_transition", lambda assistant_text: _async_value("awaiting_create_confirmation"))
+
+    import asyncio
+
+    asyncio.run(session.ask("新的用户目标"))
+
+    assert session.user_goal == "新的用户目标"
+
+
+def test_confirmation_turn_does_not_overwrite_existing_user_goal(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-goal-confirm",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_create_confirmation",
+        user_goal="帮我查看数据库中有风险的用户",
+    )
+
+    async def fake_route(query: str) -> str:
+        return "ask_references"
+
+    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
+
+    import asyncio
+
+    asyncio.run(session.ask("创建"))
+
+    assert session.user_goal == "帮我查看数据库中有风险的用户"
 
 
 def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
