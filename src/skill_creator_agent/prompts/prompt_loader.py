@@ -19,8 +19,10 @@ STAGE_CONTEXT_WRITE_SKILL_DOC = "stage_context_write_skill_doc"
 STAGE_CONTEXT_WRITE_SKILL_SCRIPT = "stage_context_write_skill_script"
 STAGE_CONTEXT_EXECUTE_SKILL = "stage_context_execute_skill"
 STAGE_ROUTER = "stage_router"
+DISCOVERY_TRANSITION_ROUTER = "discovery_transition_router"
 
 PROMPTS = (
+    DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,
     NO_SKILL_FALLBACK_DIRECT,

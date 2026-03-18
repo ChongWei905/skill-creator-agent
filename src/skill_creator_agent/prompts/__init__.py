@@ -1,4 +1,5 @@
 from skill_creator_agent.prompts.prompt_loader import (
+    DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,
     NO_SKILL_FALLBACK_DIRECT,
@@ -29,6 +30,7 @@ from skill_creator_agent.prompts.prompt_loader import (
 
 __all__ = [
     "GRAPH_DB_INSTRUCTION",
+    "DISCOVERY_TRANSITION_ROUTER",
     "NO_SKILL_FALLBACK",
     "NO_SKILL_FALLBACK_DIRECT",
     "SKILL_CREATION_WORKFLOW",

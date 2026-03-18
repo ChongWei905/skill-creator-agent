@@ -16,6 +16,7 @@ from skill_creator_agent.ferry_config import materialize_ferry_config
 from skill_creator_agent.ferry_tools import configure_runtime_tools
 from skill_creator_agent.paths import package_path, project_path
 from skill_creator_agent.prompts import (
+    DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
     SKILL_EXECUTION_REMINDER,
     STAGE_CONTEXT_ASK_REFERENCES,
@@ -94,6 +95,7 @@ STAGE_WORKFLOW_LOADERS = {
     "write_skill_script": load_skill_creation_step5,
     "execute_skill": load_skill_creation_step6,
 }
+DISCOVERY_TRANSITION_CHOICES = ("idle", "awaiting_create_confirmation")
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,10 @@ def _load_stage_workflow_excerpt(stage_name: str) -> str:
 
 def _format_stage_router_choices(stage_name: str) -> str:
     choices = CONFIRMATION_ROUTE_CHOICES.get(stage_name, ())
+    return "\n".join(f"- {choice}" for choice in choices)
+
+
+def _format_transition_choices(choices: tuple[str, ...]) -> str:
     return "\n".join(f"- {choice}" for choice in choices)
 
 
@@ -218,7 +224,7 @@ class DataAgentSession:
             response = await self._run_stage(policy, normalized, clear_history=clear_history)
         self.last_assistant_text = extract_last_message_text(response)
         self.active_turn_stage = policy.name
-        self._advance_workflow_stage(policy, self.last_assistant_text)
+        self.workflow_stage = await self._determine_next_workflow_stage(policy, self.last_assistant_text)
         if policy.name == "create_skill":
             self.created_skill_summary = _compact_text(self.last_assistant_text, limit=2200)
             extracted = _extract_created_skill_name(self.last_assistant_text)
@@ -253,38 +259,22 @@ class DataAgentSession:
         policy = policy or self.resolve_turn_policy(query)
         return self._build_turn_ferry_config(policy)
 
-    def _advance_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> None:
+    async def _determine_next_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> str:
+        if policy.name == "discover_existing_skill":
+            if self._should_short_circuit_stage(policy):
+                return "awaiting_create_confirmation"
+            return await self._route_discovery_transition(assistant_text)
         if policy.name == "ask_references":
-            self.workflow_stage = "awaiting_reference_answer"
-            return
+            return "awaiting_reference_answer"
         if policy.name == "inspect_schema":
-            self.workflow_stage = "awaiting_plan_approval"
-            return
+            return "awaiting_plan_approval"
         if policy.name == "propose_plan":
-            self.workflow_stage = "awaiting_plan_approval"
-            return
+            return "awaiting_plan_approval"
         if policy.name == "create_skill":
-            if _looks_like_execute_request(assistant_text):
-                self.workflow_stage = "awaiting_execute_confirmation"
-                return
-            self.workflow_stage = "idle"
-            return
+            return "awaiting_execute_confirmation"
         if policy.name == "execute_skill":
-            self.workflow_stage = "idle"
-            return
-        if _looks_like_create_confirmation(assistant_text):
-            self.workflow_stage = "awaiting_create_confirmation"
-            return
-        if _looks_like_reference_request(assistant_text):
-            self.workflow_stage = "awaiting_reference_answer"
-            return
-        if _looks_like_plan_approval_request(assistant_text):
-            self.workflow_stage = "awaiting_plan_approval"
-            return
-        if _looks_like_execute_request(assistant_text):
-            self.workflow_stage = "awaiting_execute_confirmation"
-            return
-        self.workflow_stage = "idle"
+            return "idle"
+        return "idle"
 
     async def _handle_confirmation_turn(self, query: str, *, clear_history: bool) -> dict[str, Any]:
         decision = await self._route_confirmation_stage(query)
@@ -349,6 +339,30 @@ class DataAgentSession:
         next_stage = str(parsed.get("next_stage", "")).strip()
         if next_stage not in allowed_choices:
             return stage_name
+        return next_stage
+
+    async def _route_discovery_transition(self, assistant_text: str) -> str:
+        llm = llm_manager.get_llm(self.router_model_name)
+        if llm is None:
+            raise RuntimeError(f"Router LLM not found: {self.router_model_name}")
+
+        prompt = load_prompt(
+            DISCOVERY_TRANSITION_ROUTER,
+            current_stage="discover_existing_skill",
+            allowed_next_stages=_format_transition_choices(DISCOVERY_TRANSITION_CHOICES),
+            assistant_reply=assistant_text,
+        )
+        response = await llm.ainvoke(
+            [
+                {"role": "system", "content": prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        parsed = _parse_router_json(response.content)
+        next_stage = str(parsed.get("next_workflow_stage", "")).strip()
+        if next_stage not in DISCOVERY_TRANSITION_CHOICES:
+            return "idle"
         return next_stage
 
     async def _handle_reference_answer_turn(self, query: str) -> dict[str, Any]:
@@ -923,68 +937,6 @@ def _is_short_control_reply(text: str) -> bool:
     if _is_affirmative(normalized):
         return True
     return normalized in negatives
-
-
-def _looks_like_create_confirmation(text: str) -> bool:
-    signals = [
-        "是否希望我为您创建",
-        "希望我为您创建",
-        "是否要创建一个新的 skill",
-        "是否要创建这个新技能",
-        "是否需要创建一个新技能",
-        "是否需要创建新的技能",
-        "是否应该创建一个新技能",
-        "请问是否需要创建一个新技能",
-        "请确认是否要创建",
-        "请问您希望我为您创建",
-        "would you like me to create",
-        "do you want me to create a new skill",
-        "确认技能创建需求",
-    ]
-    normalized = text.lower()
-    if any(signal.lower() in normalized for signal in signals):
-        return True
-    return (
-        ("没有现成的技能" in text or "没有匹配的技能" in text or "no matching skill" in normalized)
-        and ("创建" in text or "create" in normalized)
-        and ("技能" in text or "skill" in normalized)
-    )
-
-
-def _looks_like_reference_request(text: str) -> bool:
-    signals = [
-        "参考文档",
-        "reference documentation",
-        "schema",
-        "sample commands",
-        "business rules",
-        "请提供",
-    ]
-    return any(signal.lower() in text.lower() for signal in signals)
-
-
-def _looks_like_plan_approval_request(text: str) -> bool:
-    signals = [
-        "does this execution flow look correct",
-        "should i proceed with creating the skill",
-        "execution flow plan",
-        "skill execution flow plan",
-        "是否继续创建",
-        "是否调整",
-        "执行流程",
-    ]
-    return any(signal.lower() in text.lower() for signal in signals)
-
-
-def _looks_like_execute_request(text: str) -> bool:
-    signals = [
-        "是否执行",
-        "would you like me to execute",
-        "do you want me to execute",
-        "execute the new skill",
-        "run the new skill",
-    ]
-    return any(signal.lower() in text.lower() for signal in signals)
 
 
 def _is_negative_reference_reply(text: str) -> bool:

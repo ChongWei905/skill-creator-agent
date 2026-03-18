@@ -13,7 +13,6 @@ from skill_creator_agent.data_agent_bridge import (
     _create_skill_policy,
     _execute_skill_policy,
     _inspect_schema_policy,
-    _looks_like_create_confirmation,
     _propose_plan_policy,
     build_data_agent_session,
     extract_last_message_text,
@@ -215,17 +214,7 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
     assert "graph_get_object_types" not in tool_names
 
 
-def test_create_confirmation_detection_matches_real_chinese_prompt():
-    assistant_text = (
-        "目前没有现成的技能可以处理这个需求。\n\n"
-        "请问您希望我为您创建一个新的技能来处理这个需求吗？\n"
-        "请确认是否要创建这个新技能？"
-    )
-
-    assert _looks_like_create_confirmation(assistant_text) is True
-
-
-def test_propose_plan_stage_does_not_advance_when_assistant_repeats_doc_question(tmp_path):
+def test_inspect_schema_stage_always_advances_to_plan_approval(tmp_path):
     session = DataAgentSession(
         data_agent=object(),
         runtime=SkillCreatorRuntime.from_config(
@@ -239,12 +228,16 @@ def test_propose_plan_stage_does_not_advance_when_assistant_repeats_doc_question
         workflow_stage="awaiting_reference_answer",
     )
 
-    session._advance_workflow_stage(
-        _inspect_schema_policy(graph_enabled=True),
-        "您是否有任何关于用户风险分析的参考文档可以帮助指导技能创建？",
+    import asyncio
+
+    next_stage = asyncio.run(
+        session._determine_next_workflow_stage(
+            _inspect_schema_policy(graph_enabled=True),
+            "任何 assistant 文本都不应该影响 inspect_schema 的阶段推进。",
+        )
     )
 
-    assert session.workflow_stage == "awaiting_plan_approval"
+    assert next_stage == "awaiting_plan_approval"
 
 
 def test_propose_plan_stage_prefers_graph_connector_python_plan(tmp_path):
@@ -564,3 +557,30 @@ def test_confirmation_router_uses_llm_output(monkeypatch, tmp_path):
     result = asyncio.run(session._route_confirmation_stage("创建吧"))
 
     assert result == "ask_references"
+
+
+def test_discovery_transition_uses_llm_output(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-discovery-router",
+        output_root=tmp_path / "outputs",
+        workflow_stage="idle",
+    )
+
+    class FakeLLM:
+        async def ainvoke(self, chat_input, **kwargs):
+            return type("Resp", (), {"content": '{"next_workflow_stage":"awaiting_create_confirmation"}'})()
+
+    monkeypatch.setattr(llm_manager, "get_llm", lambda name: FakeLLM())
+
+    import asyncio
+
+    result = asyncio.run(
+        session._route_discovery_transition("当前没有匹配的技能。您是否希望我为您创建一个新的技能？")
+    )
+
+    assert result == "awaiting_create_confirmation"
