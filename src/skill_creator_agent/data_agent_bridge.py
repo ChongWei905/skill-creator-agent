@@ -854,11 +854,38 @@ def _is_affirmative(text: str) -> bool:
         "可以",
         "行",
         "确认",
+        "批准",
+        "批准吧",
+        "批准创建",
+        "同意",
+        "同意创建",
+        "通过",
+        "approve",
+        "approved",
+        "proceed",
+        "continue",
         "开始吧",
         "执行吧",
         "运行吧",
     }
-    return normalized in positives or any(token in normalized for token in ["创建吧", "创建", "可以", "确认", "执行吧", "运行吧"])
+    return normalized in positives or any(
+        token in normalized
+        for token in [
+            "创建吧",
+            "创建",
+            "可以",
+            "确认",
+            "批准",
+            "同意",
+            "通过",
+            "approve",
+            "approved",
+            "proceed",
+            "continue",
+            "执行吧",
+            "运行吧",
+        ]
+    )
 
 
 def _is_short_control_reply(text: str) -> bool:

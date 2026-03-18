@@ -442,3 +442,30 @@ def test_handle_create_skill_turn_runs_serial_substages(monkeypatch, tmp_path):
     assert session.workflow_stage == "awaiting_execute_confirmation"
     assert "identify-risky-customers" in text
     assert (tmp_path / "skills" / "identify-risky-customers" / "SKILL.md").exists()
+
+
+def test_plan_approval_accepts_plain_pizhun_reply(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path / "skills")}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-plan-approve",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_plan_approval",
+        user_goal="帮我查看数据库中有风险的用户",
+        plan_summary="建议创建技能 `identify-risky-customers`。",
+    )
+
+    async def fake_handle_create_skill_turn(query: str):
+        return {"messages": [type("Msg", (), {"content": f"created from {query}"})()]}
+
+    monkeypatch.setattr(session, "_handle_create_skill_turn", fake_handle_create_skill_turn)
+
+    import asyncio
+
+    result = asyncio.run(session.ask("批准"))
+
+    assert extract_last_message_text(result) == "created from 批准"
+    assert session.next_run_id == 1
