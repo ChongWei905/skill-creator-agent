@@ -18,6 +18,7 @@ STAGE_CONTEXT_CREATE_SKILL = "stage_context_create_skill"
 STAGE_CONTEXT_WRITE_SKILL_DOC = "stage_context_write_skill_doc"
 STAGE_CONTEXT_WRITE_SKILL_SCRIPT = "stage_context_write_skill_script"
 STAGE_CONTEXT_EXECUTE_SKILL = "stage_context_execute_skill"
+STAGE_ROUTER = "stage_router"
 
 PROMPTS = (
     GRAPH_DB_INSTRUCTION,
@@ -33,6 +34,7 @@ PROMPTS = (
     STAGE_CONTEXT_PROPOSE_PLAN,
     STAGE_CONTEXT_WRITE_SKILL_DOC,
     STAGE_CONTEXT_WRITE_SKILL_SCRIPT,
+    STAGE_ROUTER,
     SYSTEM_PROMPT_BASE,
     SYSTEM_PROMPT_DIRECT_QUERY,
 )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -25,6 +26,7 @@ from skill_creator_agent.prompts import (
     STAGE_CONTEXT_PROPOSE_PLAN,
     STAGE_CONTEXT_WRITE_SKILL_DOC,
     STAGE_CONTEXT_WRITE_SKILL_SCRIPT,
+    STAGE_ROUTER,
     load_prompt,
     load_skill_creation_step1,
     load_skill_creation_step2,
@@ -101,6 +103,13 @@ class StagePolicy:
     constraints: str = "Follow the current stage exactly. Use only the registered tools for this stage."
 
 
+CONFIRMATION_ROUTE_CHOICES: dict[str, tuple[str, ...]] = {
+    "awaiting_create_confirmation": ("ask_references", "idle", "awaiting_create_confirmation"),
+    "awaiting_plan_approval": ("create_skill", "awaiting_plan_approval"),
+    "awaiting_execute_confirmation": ("execute_skill", "idle", "awaiting_execute_confirmation"),
+}
+
+
 def _format_allowed_tools(allowed_tool_names: set[str]) -> str:
     allowed_tools = sorted(allowed_tool_names)
     return ", ".join(allowed_tools) if allowed_tools else "none"
@@ -116,6 +125,11 @@ def _format_skill_metadata(runtime: SkillCreatorRuntime) -> str:
 def _load_stage_workflow_excerpt(stage_name: str) -> str:
     loader = STAGE_WORKFLOW_LOADERS.get(stage_name)
     return loader() if loader is not None else ""
+
+
+def _format_stage_router_choices(stage_name: str) -> str:
+    choices = CONFIRMATION_ROUTE_CHOICES.get(stage_name, ())
+    return "\n".join(f"- {choice}" for choice in choices)
 
 
 def _render_stage_system_prompt(
@@ -179,6 +193,7 @@ class DataAgentSession:
     plan_summary: str = ""
     created_skill_summary: str = ""
     created_skill_name: str = ""
+    router_model_name: str = "skill_creator_chat"
 
     @property
     def output_path(self) -> Path:
@@ -187,12 +202,12 @@ class DataAgentSession:
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
         normalized = query.strip()
         self._maybe_capture_user_goal(normalized)
-        if self.workflow_stage == "awaiting_reference_answer":
-            response = await self._handle_reference_answer_turn(normalized)
+        if self.workflow_stage in CONFIRMATION_ROUTE_CHOICES:
+            response = await self._handle_confirmation_turn(normalized, clear_history=clear_history)
             self.next_run_id += 1
             return response
-        if self.workflow_stage == "awaiting_plan_approval" and _is_affirmative(normalized):
-            response = await self._handle_create_skill_turn(normalized)
+        if self.workflow_stage == "awaiting_reference_answer":
+            response = await self._handle_reference_answer_turn(normalized)
             self.next_run_id += 1
             return response
 
@@ -230,25 +245,12 @@ class DataAgentSession:
         self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""), "")
 
     def resolve_turn_policy(self, query: str) -> StagePolicy:
-        normalized = query.strip()
-        if (
-            self.workflow_stage == "idle"
-            and _is_affirmative(normalized)
-            and _looks_like_create_confirmation(self.last_assistant_text)
-        ):
-            return _ask_references_policy()
-        if self.workflow_stage == "awaiting_create_confirmation" and _is_affirmative(normalized):
-            return _ask_references_policy()
         if self.workflow_stage == "awaiting_reference_answer":
             return _inspect_schema_policy(graph_enabled=self.runtime.settings.graph_enabled)
-        if self.workflow_stage == "awaiting_plan_approval" and _is_affirmative(normalized):
-            return _create_skill_policy()
-        if self.workflow_stage == "awaiting_execute_confirmation" and _is_affirmative(normalized):
-            return _execute_skill_policy()
         return _discover_existing_skill_policy(runtime=self.runtime)
 
-    def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
-        policy = self.resolve_turn_policy(query)
+    def preview_turn_ferry_config(self, query: str, *, policy: StagePolicy | None = None) -> dict[str, Any]:
+        policy = policy or self.resolve_turn_policy(query)
         return self._build_turn_ferry_config(policy)
 
     def _advance_workflow_stage(self, policy: StagePolicy, assistant_text: str) -> None:
@@ -283,6 +285,71 @@ class DataAgentSession:
             self.workflow_stage = "awaiting_execute_confirmation"
             return
         self.workflow_stage = "idle"
+
+    async def _handle_confirmation_turn(self, query: str, *, clear_history: bool) -> dict[str, Any]:
+        decision = await self._route_confirmation_stage(query)
+
+        if decision == "ask_references":
+            response = self._build_short_circuit_response(_ask_references_policy())
+            self.last_assistant_text = extract_last_message_text(response)
+            self.active_turn_stage = "ask_references"
+            self.workflow_stage = "awaiting_reference_answer"
+            return response
+
+        if decision == "create_skill":
+            return await self._handle_create_skill_turn(query)
+
+        if decision == "execute_skill":
+            policy = _execute_skill_policy()
+            response = await self._run_stage(policy, query, clear_history=clear_history)
+            self.last_assistant_text = extract_last_message_text(response)
+            self.active_turn_stage = policy.name
+            self.workflow_stage = "idle"
+            return response
+
+        if decision == "idle":
+            if self.workflow_stage == "awaiting_execute_confirmation":
+                text = "好的，当前先不执行这个技能。后续如果需要运行它，请直接告诉我。"
+            else:
+                text = "好的，当前先不继续这个创建流程了。如果之后需要继续创建技能，请直接告诉我。"
+            response = _text_response(text)
+            self.last_assistant_text = text
+            self.active_turn_stage = "discover_existing_skill"
+            self.workflow_stage = "idle"
+            return response
+
+        response = _text_response(_clarify_message_for_workflow_stage(self.workflow_stage))
+        self.last_assistant_text = extract_last_message_text(response)
+        return response
+
+    async def _route_confirmation_stage(self, query: str) -> str:
+        stage_name = self.workflow_stage
+        allowed_choices = CONFIRMATION_ROUTE_CHOICES.get(stage_name)
+        if not allowed_choices:
+            raise ValueError(f"Unsupported confirmation stage: {stage_name}")
+
+        llm = llm_manager.get_llm(self.router_model_name)
+        if llm is None:
+            raise RuntimeError(f"Router LLM not found: {self.router_model_name}")
+
+        prompt = load_prompt(
+            STAGE_ROUTER,
+            current_workflow_stage=stage_name,
+            allowed_next_stages=_format_stage_router_choices(stage_name),
+            user_reply=query,
+        )
+        response = await llm.ainvoke(
+            [
+                {"role": "system", "content": prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        parsed = _parse_router_json(response.content)
+        next_stage = str(parsed.get("next_stage", "")).strip()
+        if next_stage not in allowed_choices:
+            return stage_name
+        return next_stage
 
     async def _handle_reference_answer_turn(self, query: str) -> dict[str, Any]:
         self.reference_summary = _compact_text(query, limit=1000)
@@ -597,6 +664,7 @@ def build_data_agent_session(
         allowed_local_tool_names=initial_policy.allowed_tool_names,
     )
     data_agent = DataAgent.from_config(rendered_path)
+    router_model_name = _resolve_router_model_name(source_config)
     return DataAgentSession(
         data_agent=data_agent,
         runtime=runtime,
@@ -606,6 +674,7 @@ def build_data_agent_session(
         session_id=resolved_session_id,
         output_root=resolved_output_root,
         active_turn_stage=initial_policy.name,
+        router_model_name=router_model_name,
     )
 
 
@@ -632,6 +701,14 @@ def extract_last_message_text(response: Any) -> str:
         if final_answer is not None:
             return str(final_answer)
     return str(response)
+
+
+def _resolve_router_model_name(config: Mapping[str, Any] | None) -> str:
+    model_cfg = (config or {}).get("MODEL")
+    if isinstance(model_cfg, Mapping):
+        for model_name in model_cfg:
+            return str(model_name)
+    return "skill_creator_chat"
 
 
 def _apply_skill_creator_overrides(
@@ -923,6 +1000,35 @@ def _is_negative_reference_reply(text: str) -> bool:
         "no",
     }
     return normalized in negatives or "没有" in normalized
+
+
+def _parse_router_json(text: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            payload = json.loads(match.group(0))
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            pass
+    return {}
+
+
+def _clarify_message_for_workflow_stage(stage_name: str) -> str:
+    if stage_name == "awaiting_create_confirmation":
+        return "我还不能确定您的意思。请明确告诉我，是要继续创建这个技能，还是先不创建。"
+    if stage_name == "awaiting_plan_approval":
+        return "我还不能确定您的意思。请明确告诉我，是批准当前方案开始创建，还是希望我继续调整方案。"
+    if stage_name == "awaiting_execute_confirmation":
+        return "我还不能确定您的意思。请明确告诉我，是否要立即执行这个技能。"
+    return "我还不能确定您的意思，请再明确说明一下。"
 
 
 def _compact_text(text: str, *, limit: int) -> str:

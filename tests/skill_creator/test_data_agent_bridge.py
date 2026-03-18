@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ferry.core.managers.llm_manager import llm_manager
 from ferry.core.cbb.base_agent import BaseAgent
 from ferry.core.flex.agent import FlexAgent
 from ferry.actions.tools import tool_manager
@@ -8,6 +9,9 @@ from ferry.interface.sdk.agent import DataAgent
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
+    _ask_references_policy,
+    _create_skill_policy,
+    _execute_skill_policy,
     _inspect_schema_policy,
     _looks_like_create_confirmation,
     _propose_plan_policy,
@@ -76,7 +80,7 @@ def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
         workflow_stage="awaiting_create_confirmation",
     )
 
-    config = session.preview_turn_ferry_config("创建吧")
+    config = session.preview_turn_ferry_config("创建吧", policy=_ask_references_policy())
 
     assert "Current stage: ask_references" in config["SCENARIO"]["chat"]["instructions"]
     assert "Ask only for reference documentation" in config["SCENARIO"]["chat"]["instructions"]
@@ -183,7 +187,7 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
         user_goal="帮我查看数据库中有风险的用户",
     )
 
-    config = session.preview_turn_ferry_config("是，请创建技能")
+    config = session.preview_turn_ferry_config("是，请创建技能", policy=_create_skill_policy())
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
     instructions = config["SCENARIO"]["chat"]["instructions"]
 
@@ -370,6 +374,11 @@ def test_ask_references_stage_short_circuits_to_single_question(tmp_path):
         user_goal="帮我查看数据库中有风险的用户",
     )
 
+    async def fake_route(query: str):
+        return "ask_references"
+
+    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
+
     import asyncio
 
     result = asyncio.run(session.ask("创建"))
@@ -400,7 +409,7 @@ def test_stage_tool_registry_isolation_between_schema_and_create(tmp_path):
     session._build_turn_data_agent(_inspect_schema_policy(graph_enabled=True), "inspect schema")
     assert "graph_get_object_types" in set(tool_manager.list_tools())
 
-    session._build_turn_data_agent(session.resolve_turn_policy("批准，请创建"), "批准，请创建")
+    session._build_turn_data_agent(_create_skill_policy(), "批准，请创建")
     tool_names = set(tool_manager.list_tools())
 
     assert "create_skill_scaffold" in tool_names
@@ -430,6 +439,7 @@ def test_handle_create_skill_turn_runs_serial_substages(monkeypatch, tmp_path):
 
     monkeypatch.setattr(session, "_run_stage", fake_run_stage)
     monkeypatch.setattr(session.runtime, "reload_skill", lambda name: reload_calls.append(name) or object())
+    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route_create_skill)
 
     import asyncio
 
@@ -462,6 +472,7 @@ def test_plan_approval_accepts_plain_pizhun_reply(monkeypatch, tmp_path):
         return {"messages": [type("Msg", (), {"content": f"created from {query}"})()]}
 
     monkeypatch.setattr(session, "_handle_create_skill_turn", fake_handle_create_skill_turn)
+    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route_create_skill)
 
     import asyncio
 
@@ -469,3 +480,87 @@ def test_plan_approval_accepts_plain_pizhun_reply(monkeypatch, tmp_path):
 
     assert extract_last_message_text(result) == "created from 批准"
     assert session.next_run_id == 1
+
+
+async def fake_route_create_skill(query: str) -> str:
+    return "create_skill"
+
+
+def test_execute_confirmation_uses_router_decision(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-execute",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_execute_confirmation",
+    )
+
+    async def fake_route(query: str) -> str:
+        return "execute_skill"
+
+    async def fake_run_stage(policy, query, *, clear_history):
+        assert policy.name == _execute_skill_policy().name
+        return {"messages": [type("Msg", (), {"content": "executed"})()]}
+
+    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route)
+    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+
+    import asyncio
+
+    result = asyncio.run(session.ask("执行"))
+
+    assert extract_last_message_text(result) == "executed"
+    assert session.workflow_stage == "idle"
+
+
+def test_router_decline_keeps_flow_out_of_creation(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-decline",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_create_confirmation",
+    )
+
+    async def fake_route(query: str) -> str:
+        return "idle"
+
+    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
+
+    import asyncio
+
+    result = asyncio.run(session.ask("先不创建"))
+
+    assert "先不继续这个创建流程" in extract_last_message_text(result)
+    assert session.workflow_stage == "idle"
+
+
+def test_confirmation_router_uses_llm_output(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-router",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_create_confirmation",
+    )
+
+    class FakeLLM:
+        async def ainvoke(self, chat_input, **kwargs):
+            return type("Resp", (), {"content": '{"next_stage":"ask_references"}'})()
+
+    monkeypatch.setattr(llm_manager, "get_llm", lambda name: FakeLLM())
+
+    import asyncio
+
+    result = asyncio.run(session._route_confirmation_stage("创建吧"))
+
+    assert result == "ask_references"
