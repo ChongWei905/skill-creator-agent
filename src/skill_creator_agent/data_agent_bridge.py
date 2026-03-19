@@ -500,7 +500,7 @@ class DataAgentSession:
             f"- 目录: {skill_dir}\n"
             f"- 文档: {skill_md}\n"
             f"- 脚本目录: {scripts_dir}\n\n"
-            "是否立即执行这个新技能来查询风险用户？"
+            f"是否立即执行这个新技能来继续处理原始任务：{_compact_text(self.user_goal or '当前任务', limit=80)}？"
         )
         self.created_skill_summary = summary
         self.last_assistant_text = summary

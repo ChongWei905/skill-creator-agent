@@ -21,6 +21,7 @@ Stage instructions:
 - Follow the business workflow and analysis method from the reference summary as closely as possible. If the reference summary preserved numbered or headed methodology, mirror that structure instead of inventing a new one.
 - The plan must include a proposed skill name, data sources, query/filter logic, and files to create.
 - Propose a filesystem-safe skill slug using lowercase letters, numbers, and hyphens only.
+- Prefer the minimum viable file set. By default, plan for `SKILL.md` plus one primary Python execution script unless multiple scripts are strictly required by the workflow.
 - Design the skill as reusable logic for any database entity of the same type, not as a one-off workflow for the exact branch or bank named in the current request.
 - Treat any concrete bank or branch from the current request as an example input parameter, not as hardcoded logic.
 - Explicitly separate:

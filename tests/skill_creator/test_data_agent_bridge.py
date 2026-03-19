@@ -639,6 +639,7 @@ def test_handle_create_skill_turn_runs_serial_substages(monkeypatch, tmp_path):
     assert session.created_skill_name == "identify-risky-customers"
     assert session.workflow_stage == "awaiting_execute_confirmation"
     assert "identify-risky-customers" in text
+    assert "帮我查看数据库中有风险的用户" in text
     assert (tmp_path / "skills" / "identify-risky-customers" / "SKILL.md").exists()
 
 

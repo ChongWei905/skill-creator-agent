@@ -19,6 +19,7 @@ Stage instructions:
 - Only create or update the execution scripts in this stage.
 - Read the current SKILL.md before writing the script so the script matches the documented contract.
 - Do not rewrite SKILL.md unless absolutely required for consistency.
+- Prefer the minimum number of scripts needed to satisfy the approved plan. Default to one primary execution script unless the approved plan truly requires multiple scripts.
 - Write fully functional graph-backed Python code using `from connectors import GraphConnector`.
 - Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.
 - Use GraphConnector instance methods directly without any `graph_` prefix.

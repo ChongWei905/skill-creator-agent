@@ -7,6 +7,8 @@ import yaml
 
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
+DEFAULT_CHAT_MAX_TOKENS = 4096
+
 DEFAULT_FERRY_FILE_TOOLS: list[dict[str, Any]] = [
     {
         "name": "bash",
@@ -205,7 +207,7 @@ def _build_default_ferry_config(
                 "model_type": "chat",
                 "params": {
                     "model": "deepseek-chat",
-                    "max_tokens": 8182,
+                    "max_tokens": DEFAULT_CHAT_MAX_TOKENS,
                 },
             }
         },
