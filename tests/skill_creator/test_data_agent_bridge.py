@@ -237,6 +237,15 @@ def test_extract_reference_paths_finds_existing_file():
     assert paths[0].name == "banks.md"
 
 
+def test_extract_reference_paths_recovers_missing_leading_slash():
+    paths = _extract_reference_paths(
+        "有文档，位置在Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
+    )
+
+    assert paths
+    assert str(paths[0]).endswith("/texts/banks.md")
+
+
 def test_load_reference_sources_from_query_reads_file_content():
     sources = _load_reference_sources_from_query(
         "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"

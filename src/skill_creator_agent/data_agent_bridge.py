@@ -890,10 +890,13 @@ def _is_negative_reference_reply(text: str) -> bool:
 
 
 def _extract_reference_paths(text: str) -> list[Path]:
-    candidates = re.findall(r"(/[^\s,，;；]+)", text)
+    candidates = re.findall(r"(/[^\s,，;；]+|Users/[^\s,，;；]+)", text)
     paths: list[Path] = []
     for candidate in candidates:
-        path = Path(candidate.strip().rstrip("。.!?)）]》”\"'"))
+        cleaned = candidate.strip().rstrip("。.!?)）]》”\"'")
+        if cleaned.startswith("Users/"):
+            cleaned = "/" + cleaned
+        path = Path(cleaned)
         if path.exists() and path.is_file():
             paths.append(path.resolve())
     unique_paths: list[Path] = []
