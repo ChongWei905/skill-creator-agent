@@ -137,6 +137,8 @@ def build_ferry_config(
     system_instructions: str | None = None,
     system_constraints: str | None = None,
     allowed_local_tool_names: set[str] | list[str] | None = None,
+    model_params_overrides: Mapping[str, Any] | None = None,
+    include_skills: bool = True,
 ) -> dict[str, Any]:
     user_config = dict(config or {})
     base_config = _build_default_ferry_config(
@@ -145,12 +147,15 @@ def build_ferry_config(
         stage_instructions=stage_instructions,
         system_instructions=system_instructions,
         system_constraints=system_constraints,
+        model_params_overrides=model_params_overrides,
+        include_skills=include_skills,
     )
     merged = _deep_merge(base_config, user_config)
     return _normalize_ferry_config(
         merged,
         runtime=runtime,
         allowed_local_tool_names=allowed_local_tool_names,
+        include_skills=include_skills,
     )
 
 
@@ -163,6 +168,8 @@ def materialize_ferry_config(
     system_instructions: str | None = None,
     system_constraints: str | None = None,
     allowed_local_tool_names: set[str] | list[str] | None = None,
+    model_params_overrides: Mapping[str, Any] | None = None,
+    include_skills: bool = True,
 ) -> Path:
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -173,6 +180,8 @@ def materialize_ferry_config(
         system_instructions=system_instructions,
         system_constraints=system_constraints,
         allowed_local_tool_names=allowed_local_tool_names,
+        model_params_overrides=model_params_overrides,
+        include_skills=include_skills,
     )
     target.write_text(
         yaml.safe_dump(rendered, allow_unicode=True, sort_keys=False),
@@ -188,8 +197,16 @@ def _build_default_ferry_config(
     stage_instructions: str | None = None,
     system_instructions: str | None = None,
     system_constraints: str | None = None,
+    model_params_overrides: Mapping[str, Any] | None = None,
+    include_skills: bool = True,
 ) -> dict[str, Any]:
     chat_model_name = _resolve_chat_model_name(config)
+    model_params = {
+        "model": "deepseek-chat",
+        "max_tokens": DEFAULT_CHAT_MAX_TOKENS,
+    }
+    if model_params_overrides:
+        model_params.update(dict(model_params_overrides))
     return {
         "AGENT_CONFIG": {
             "name": "skill_creator",
@@ -205,10 +222,7 @@ def _build_default_ferry_config(
             chat_model_name: {
                 "provider": "openai",
                 "model_type": "chat",
-                "params": {
-                    "model": "deepseek-chat",
-                    "max_tokens": DEFAULT_CHAT_MAX_TOKENS,
-                },
+                "params": model_params,
             }
         },
         "SCENARIO": {
@@ -253,7 +267,7 @@ def _build_default_ferry_config(
                 *DEFAULT_FERRY_FILE_TOOLS,
                 *_build_runtime_tools(runtime),
             ],
-            "skills": runtime.build_ferry_skill_registry(),
+            "skills": runtime.build_ferry_skill_registry() if include_skills else [],
         },
         "SKILL_CREATOR": {
             "skills_root": str(runtime.settings.skills_root),
@@ -291,6 +305,7 @@ def _normalize_ferry_config(
     *,
     runtime: SkillCreatorRuntime,
     allowed_local_tool_names: set[str] | list[str] | None = None,
+    include_skills: bool = True,
 ) -> dict[str, Any]:
     normalized = dict(config)
 
@@ -312,7 +327,7 @@ def _normalize_ferry_config(
         tools_cfg["local_functions"],
         allowed_local_tool_names,
     )
-    tools_cfg["skills"] = runtime.build_ferry_skill_registry()
+    tools_cfg["skills"] = runtime.build_ferry_skill_registry() if include_skills else []
     normalized["TOOLS"] = tools_cfg
 
     return normalized

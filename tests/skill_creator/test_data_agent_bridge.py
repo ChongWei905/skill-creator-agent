@@ -10,12 +10,14 @@ from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
     _extract_reference_paths,
+    _extract_planned_skill_slug,
     _load_reference_sources_from_query,
     _ask_references_policy,
     _create_skill_policy,
     _execute_skill_policy,
     _inspect_schema_policy,
     _propose_plan_policy,
+    _write_skill_script_policy,
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
@@ -202,6 +204,16 @@ def test_confirmation_turn_does_not_overwrite_existing_user_goal(monkeypatch, tm
     asyncio.run(session.ask("创建"))
 
     assert session.user_goal == "帮我查看数据库中有风险的用户"
+
+
+def test_extract_planned_skill_slug_prefers_explicit_identifier_over_numeric_range():
+    plan = """
+### 📁 技能文件规划
+- **技能标识**：`daily-company-deposit-analysis`（仅小写字母、数字、连字符）
+- 需要分析近 3-5 个周期的趋势。
+"""
+
+    assert _extract_planned_skill_slug(plan) == "daily-company-deposit-analysis"
 
 
 def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
@@ -403,6 +415,45 @@ def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tm
     assert "reload_skill" in tool_names
     assert "write_file" in tool_names
     assert "graph_get_object_types" not in tool_names
+
+
+def test_write_skill_script_stage_uses_minimal_context_and_no_skill_registry(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-write-script",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_plan_approval",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
+        plan_summary="这是一个很长的执行计划摘要",
+        structured_schema_handoff="STRUCTURED SCHEMA HANDOFF:\n- entity: Organ\n  fields: name, organ_code",
+        created_skill_name="company-deposit-daily-balance-analysis",
+        created_skill_dir="/tmp/company-deposit-daily-balance-analysis",
+        created_skill_md_path="/tmp/company-deposit-daily-balance-analysis/SKILL.md",
+        created_skill_scripts_dir="/tmp/company-deposit-daily-balance-analysis/scripts",
+        created_skill_primary_script_path="/tmp/company-deposit-daily-balance-analysis/scripts/analyze_company_deposit.py",
+    )
+
+    config = session.preview_turn_ferry_config("", policy=_write_skill_script_policy())
+    instructions = config["SCENARIO"]["chat"]["instructions"]
+
+    assert "Current stage: write_skill_script" in instructions
+    assert "Approved plan summary:" not in instructions
+    assert "Original Step 5 template excerpt:" not in instructions
+    assert "Structured schema handoff:" in instructions
+    assert "SKILL.md path: /tmp/company-deposit-daily-balance-analysis/SKILL.md" in instructions
+    assert "Scripts directory: /tmp/company-deposit-daily-balance-analysis/scripts" in instructions
+    assert (
+        "Primary script path: /tmp/company-deposit-daily-balance-analysis/scripts/analyze_company_deposit.py"
+        in instructions
+    )
+    assert config["MODEL"]["skill_creator_chat"]["params"]["max_tokens"] == 2560
+    assert config["TOOLS"]["skills"] == []
 
 
 def test_inspect_schema_stage_always_advances_to_plan_approval(tmp_path):

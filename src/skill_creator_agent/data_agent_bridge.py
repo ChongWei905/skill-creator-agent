@@ -151,6 +151,10 @@ def _render_stage_system_prompt(
     plan_summary: str,
     created_skill_summary: str,
     created_skill_name: str,
+    created_skill_dir: str,
+    created_skill_md_path: str,
+    created_skill_scripts_dir: str,
+    created_skill_primary_script_path: str,
 ) -> str:
     template_name = STAGE_CONTEXT_PROMPTS[policy.name]
     goal = user_goal or query or "Unknown goal"
@@ -172,6 +176,10 @@ def _render_stage_system_prompt(
         plan_summary=plan_summary or "No approved plan summary available.",
         created_skill_summary=created_skill_summary or "No created skill summary available.",
         created_skill_name=created_skill_name or "unknown",
+        created_skill_dir=created_skill_dir or "unknown",
+        created_skill_md_path=created_skill_md_path or "unknown",
+        created_skill_scripts_dir=created_skill_scripts_dir or "unknown",
+        created_skill_primary_script_path=created_skill_primary_script_path or "unknown",
         workflow_excerpt=_load_stage_workflow_excerpt(policy.name),
         graph_db_instruction=load_prompt(GRAPH_DB_INSTRUCTION),
         execution_reminder=execution_reminder,
@@ -200,6 +208,10 @@ class DataAgentSession:
     plan_summary: str = ""
     created_skill_summary: str = ""
     created_skill_name: str = ""
+    created_skill_dir: str = ""
+    created_skill_md_path: str = ""
+    created_skill_scripts_dir: str = ""
+    created_skill_primary_script_path: str = ""
     router_model_name: str = "skill_creator_chat"
 
     @property
@@ -250,6 +262,10 @@ class DataAgentSession:
         self.plan_summary = ""
         self.created_skill_summary = ""
         self.created_skill_name = ""
+        self.created_skill_dir = ""
+        self.created_skill_md_path = ""
+        self.created_skill_scripts_dir = ""
+        self.created_skill_primary_script_path = ""
         self.data_agent = self._build_turn_data_agent(self.resolve_turn_policy(""), "")
 
     def resolve_turn_policy(self, query: str) -> StagePolicy:
@@ -479,6 +495,17 @@ class DataAgentSession:
 
         scaffold_result = self.runtime.create_skill_scaffold(skill_name, description)
         self.created_skill_name = skill_name
+        self.created_skill_dir = str(Path(scaffold_result.get("skill_dir", self.runtime.settings.skills_root / skill_name)).resolve())
+        self.created_skill_md_path = str(
+            Path(scaffold_result.get("skill_md_path", self.runtime.settings.skills_root / skill_name / "SKILL.md")).resolve()
+        )
+        self.created_skill_scripts_dir = str(
+            Path(scaffold_result.get("scripts_dir", self.runtime.settings.skills_root / skill_name / "scripts")).resolve()
+        )
+        primary_script_name = _extract_primary_script_name(self.plan_summary) or _default_primary_script_name(skill_name)
+        self.created_skill_primary_script_path = str(
+            (Path(self.created_skill_scripts_dir) / primary_script_name).resolve()
+        )
 
         await self._run_stage(
             _write_skill_doc_policy(),
@@ -492,9 +519,9 @@ class DataAgentSession:
         )
         self.runtime.reload_skill(skill_name)
 
-        skill_dir = scaffold_result.get("skill_dir", str((self.runtime.settings.skills_root / skill_name).resolve()))
-        skill_md = scaffold_result.get("skill_md_path", str((self.runtime.settings.skills_root / skill_name / "SKILL.md").resolve()))
-        scripts_dir = scaffold_result.get("scripts_dir", str((self.runtime.settings.skills_root / skill_name / "scripts").resolve()))
+        skill_dir = self.created_skill_dir
+        skill_md = self.created_skill_md_path
+        scripts_dir = self.created_skill_scripts_dir
         summary = (
             f"已创建技能 `{skill_name}`。\n\n"
             f"- 目录: {skill_dir}\n"
@@ -545,6 +572,8 @@ class DataAgentSession:
             system_instructions=self._build_stage_system_prompt(policy, query),
             system_constraints=policy.constraints,
             allowed_local_tool_names=policy.allowed_tool_names,
+            model_params_overrides=_stage_model_params(policy.name),
+            include_skills=_stage_uses_skill_registry(policy.name),
         )
         configure_runtime_tools(config=self.source_config, runtime=self.runtime)
         self.ferry_config_path = rendered_path
@@ -559,6 +588,8 @@ class DataAgentSession:
             system_instructions=self._build_stage_system_prompt(policy, ""),
             system_constraints=policy.constraints,
             allowed_local_tool_names=policy.allowed_tool_names,
+            model_params_overrides=_stage_model_params(policy.name),
+            include_skills=_stage_uses_skill_registry(policy.name),
         )
 
     def _build_stage_system_prompt(self, policy: StagePolicy, query: str) -> str:
@@ -573,6 +604,10 @@ class DataAgentSession:
             plan_summary=self.plan_summary,
             created_skill_summary=self.created_skill_summary,
             created_skill_name=self.created_skill_name,
+            created_skill_dir=self.created_skill_dir,
+            created_skill_md_path=self.created_skill_md_path,
+            created_skill_scripts_dir=self.created_skill_scripts_dir,
+            created_skill_primary_script_path=self.created_skill_primary_script_path,
         )
 
     def _build_structured_schema_handoff(self) -> str:
@@ -743,9 +778,15 @@ def build_data_agent_session(
             plan_summary="",
             created_skill_summary="",
             created_skill_name="",
+            created_skill_dir="",
+            created_skill_md_path="",
+            created_skill_scripts_dir="",
+            created_skill_primary_script_path="",
         ),
         system_constraints=initial_policy.constraints,
         allowed_local_tool_names=initial_policy.allowed_tool_names,
+        model_params_overrides=_stage_model_params(initial_policy.name),
+        include_skills=_stage_uses_skill_registry(initial_policy.name),
     )
     data_agent = DataAgent.from_config(rendered_path)
     router_model_name = _resolve_router_model_name(source_config)
@@ -939,6 +980,22 @@ def _execute_skill_policy() -> StagePolicy:
     )
 
 
+def _stage_model_params(stage_name: str) -> dict[str, Any] | None:
+    if stage_name == "write_skill_doc":
+        return {
+            "max_tokens": 3072,
+        }
+    if stage_name == "write_skill_script":
+        return {
+            "max_tokens": 2560,
+        }
+    return None
+
+
+def _stage_uses_skill_registry(stage_name: str) -> bool:
+    return stage_name in {"discover_existing_skill", "execute_skill"}
+
+
 def _is_negative_reference_reply(text: str) -> bool:
     normalized = text.strip().lower()
     negatives = {
@@ -1071,9 +1128,29 @@ def _extract_created_skill_name(text: str) -> str | None:
 
 
 def _extract_planned_skill_slug(text: str) -> str | None:
+    explicit_markers = [
+        "技能标识：",
+        "技能标识:",
+        "skill identifier:",
+        "skill identifier：",
+        "skill slug:",
+        "skill slug：",
+    ]
+    for line in text.splitlines():
+        stripped = line.strip()
+        for marker in explicit_markers:
+            if stripped.lower().startswith(marker.lower()):
+                value = stripped.split(marker, 1)[1].strip(" `")
+                slug = _slugify_text(value)
+                if slug:
+                    return slug
+
     slug_pattern = re.compile(r"\b[a-z0-9]+(?:-[a-z0-9]+)+\b")
     for match in slug_pattern.finditer(text):
-        return match.group(0)
+        candidate = match.group(0)
+        if re.fullmatch(r"\d+(?:-\d+)+", candidate):
+            continue
+        return candidate
     extracted = _extract_created_skill_name(text)
     if extracted:
         slug = _slugify_text(extracted)
@@ -1087,6 +1164,17 @@ def _slugify_text(text: str) -> str:
     value = value.strip("-")
     value = re.sub(r"-{2,}", "-", value)
     return value[:80].strip("-")
+
+
+def _extract_primary_script_name(text: str) -> str | None:
+    for match in re.finditer(r"\b([A-Za-z0-9_]+\.py)\b", text):
+        return match.group(1)
+    return None
+
+
+def _default_primary_script_name(skill_slug: str) -> str:
+    base = skill_slug.replace("-", "_").strip("_") or "run_skill"
+    return f"{base}.py"
 
 
 def _build_scaffold_description(plan_summary: str, user_goal: str) -> str:

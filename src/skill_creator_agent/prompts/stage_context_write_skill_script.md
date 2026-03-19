@@ -8,18 +8,23 @@ Output only the assistant message that should be shown to the user.
 Original user goal: {user_goal}
 Allowed tools for this stage: {allowed_tools}
 Created skill slug: {created_skill_name}
-Approved plan summary: {plan_summary}
+Skill directory: {created_skill_dir}
+SKILL.md path: {created_skill_md_path}
+Scripts directory: {created_skill_scripts_dir}
+Primary script path: {created_skill_primary_script_path}
 Structured schema handoff:
 {structured_schema_handoff}
 
-Original Step 5 template excerpt:
-{workflow_excerpt}
-
 Stage instructions:
 - Only create or update the execution scripts in this stage.
-- Read the current SKILL.md before writing the script so the script matches the documented contract.
+- Read the current SKILL.md at the exact path above before writing the script. Treat that file as the source of truth for the documented contract.
 - Do not rewrite SKILL.md unless absolutely required for consistency.
+- Write script files only under the scripts directory shown above.
+- Do not inspect the scripts directory itself with `read_file`. If you need to create the main script, write it directly to the primary script path shown above.
 - Prefer the minimum number of scripts needed to satisfy the approved plan. Default to one primary execution script unless the approved plan truly requires multiple scripts.
+- Keep the implementation concise and minimal. Prefer one directly runnable Python script over helper modules, wrappers, or extra abstraction layers.
+- Do not add optional features unless the approved plan explicitly requires them. Avoid visualization, export, caching, async/concurrency, benchmarking, or speculative extension hooks.
+- Avoid long docstrings, tutorial comments, or repeated explanation text inside the generated script.
 - Write fully functional graph-backed Python code using `from connectors import GraphConnector`.
 - Read GraphConnector settings from `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` environment variables.
 - Use GraphConnector instance methods directly without any `graph_` prefix.
