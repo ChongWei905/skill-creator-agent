@@ -256,7 +256,7 @@ def test_load_reference_sources_from_query_reads_file_content():
     assert "本外币公司存款日均余额" in sources[0]["content"]
 
 
-def test_build_reference_summary_preserves_full_reference_source_content(tmp_path):
+def test_build_reference_summary_from_router_result_preserves_full_reference_source_content(tmp_path):
     session = DataAgentSession(
         data_agent=object(),
         runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
@@ -270,15 +270,96 @@ def test_build_reference_summary_preserves_full_reference_source_content(tmp_pat
 
     import asyncio
 
-    summary = asyncio.run(
-        session._build_reference_summary(
-            "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
-        )
+    summary = session._build_reference_summary_from_router_result(
+        {
+            "decision": "use_references",
+            "document_paths": [
+                "/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
+            ],
+            "inline_reference_text": "",
+        }
     )
 
     assert "## Source: /Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md" in summary
     assert "一、本外币公司存款日均余额" in summary
     assert "（四）分析计算方法" in summary
+
+
+def test_reference_answer_turn_asks_again_when_router_needs_more_info(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-reference-ask-again",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_reference_answer",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
+    )
+
+    async def fake_route_reference_response(query: str) -> dict[str, object]:
+        return {"decision": "ask_again", "document_paths": [], "inline_reference_text": ""}
+
+    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
+
+    import asyncio
+
+    result = asyncio.run(session.ask("我有文档"))
+    text = extract_last_message_text(result)
+
+    assert "请提供可读取的参考文档路径" in text
+    assert session.workflow_stage == "awaiting_reference_answer"
+    assert session.active_turn_stage == "ask_references"
+
+
+def test_reference_answer_turn_continues_after_valid_router_result(monkeypatch, tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config(
+            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
+        ),
+        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-reference-valid",
+        output_root=tmp_path / "outputs",
+        workflow_stage="awaiting_reference_answer",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
+    )
+
+    responses = [
+        {"messages": [type("Msg", (), {"content": "SCHEMA SUMMARY:\n- relevant entities: Organ"})()]},
+        {"messages": [type("Msg", (), {"content": "这是执行方案，请审批。"})()]},
+    ]
+
+    async def fake_route_reference_response(query: str) -> dict[str, object]:
+        return {
+            "decision": "use_references",
+            "document_paths": ["/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"],
+            "inline_reference_text": "",
+        }
+
+    async def fake_run_stage(policy, query, *, clear_history):
+        return responses.pop(0)
+
+    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
+    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(session.runtime, "graph_get_object_types", lambda: ["Organ"])
+    monkeypatch.setattr(
+        session.runtime,
+        "graph_get_entity_schema",
+        lambda entity_type: {"entity_type": entity_type, "sample_properties": {"name": "深圳蛇口支行", "uuid": "Organ_1"}},
+    )
+    monkeypatch.setattr(session.runtime, "graph_query_examples", lambda entity_type, limit=1: [{"name": "深圳蛇口支行", "uuid": "Organ_1"}])
+
+    import asyncio
+
+    result = asyncio.run(session.ask("有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"))
+
+    assert "执行方案" in extract_last_message_text(result)
+    assert "## Source: /Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md" in session.reference_summary
+    assert session.workflow_stage == "awaiting_plan_approval"
 
 
 def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tmp_path):
@@ -426,7 +507,11 @@ def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp
     async def fake_run_stage(policy, query, *, clear_history):
         return responses.pop(0)
 
+    async def fake_route_reference_response(query: str) -> dict[str, object]:
+        return {"decision": "no_references", "document_paths": [], "inline_reference_text": ""}
+
     monkeypatch.setattr(session, "_run_stage", fake_run_stage)
+    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
 
     import asyncio
 

@@ -8,6 +8,7 @@ from skill_creator_agent.prompts import (
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,
     NO_SKILL_FALLBACK_DIRECT,
+    REFERENCE_RESPONSE_ROUTER,
     REFERENCE_DOCUMENT_SUMMARIZER,
     SKILL_CREATION_WORKFLOW,
     SKILL_EXECUTION_REMINDER,
@@ -43,6 +44,7 @@ def test_prompt_loader_lists_expected_prompts():
     assert SKILL_CREATION_WORKFLOW in prompts
     assert NO_SKILL_FALLBACK in prompts
     assert REFERENCE_DOCUMENT_SUMMARIZER in prompts
+    assert REFERENCE_RESPONSE_ROUTER in prompts
     assert prompt_path(SYSTEM_PROMPT_BASE).name == "system_prompt_base.md"
 
 

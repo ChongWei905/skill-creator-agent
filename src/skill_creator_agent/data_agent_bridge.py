@@ -18,6 +18,7 @@ from skill_creator_agent.paths import package_path, project_path
 from skill_creator_agent.prompts import (
     DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
+    REFERENCE_RESPONSE_ROUTER,
     SKILL_EXECUTION_REMINDER,
     STAGE_CONTEXT_ASK_REFERENCES,
     STAGE_CONTEXT_CREATE_SKILL,
@@ -367,8 +368,33 @@ class DataAgentSession:
         return next_stage
 
     async def _handle_reference_answer_turn(self, query: str) -> dict[str, Any]:
-        self.reference_summary = await self._build_reference_summary(query)
-        self.no_references = _is_negative_reference_reply(query)
+        reference_result = await self._route_reference_response(query)
+        decision = reference_result["decision"]
+
+        if decision == "ask_again":
+            response = _text_response(
+                "请提供可读取的参考文档路径，或者直接粘贴相关文档内容；如果不想再补充文档，请直接回复“没有”。"
+            )
+            self.last_assistant_text = extract_last_message_text(response)
+            self.active_turn_stage = "ask_references"
+            self.workflow_stage = "awaiting_reference_answer"
+            return response
+
+        if decision == "no_references":
+            self.reference_summary = query
+            self.no_references = True
+        else:
+            resolved_summary = self._build_reference_summary_from_router_result(reference_result)
+            if not resolved_summary:
+                response = _text_response(
+                    "我还没有成功读取到您提到的参考文档。请提供一个可访问的文件路径，或者直接粘贴文档内容；如果不再补充文档，请回复“没有”。"
+                )
+                self.last_assistant_text = extract_last_message_text(response)
+                self.active_turn_stage = "ask_references"
+                self.workflow_stage = "awaiting_reference_answer"
+                return response
+            self.reference_summary = resolved_summary
+            self.no_references = False
 
         if self.runtime.settings.graph_enabled:
             schema_response = await self._run_stage(
@@ -393,17 +419,56 @@ class DataAgentSession:
         self.workflow_stage = "awaiting_plan_approval"
         return plan_response
 
-    async def _build_reference_summary(self, query: str) -> str:
-        if _is_negative_reference_reply(query):
-            return _compact_text(query, limit=1000)
+    async def _route_reference_response(self, query: str) -> dict[str, Any]:
+        llm = llm_manager.get_llm(self.router_model_name)
+        if llm is None:
+            raise RuntimeError(f"Router LLM not found: {self.router_model_name}")
 
-        reference_sources = _load_reference_sources_from_query(query)
-        if not reference_sources:
-            return _compact_text(query, limit=2000)
+        prompt = load_prompt(
+            REFERENCE_RESPONSE_ROUTER,
+            user_goal=self.user_goal or "Unknown goal",
+            user_reply=query,
+        )
+        response = await llm.ainvoke(
+            [
+                {"role": "system", "content": prompt},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        parsed = _parse_router_json(response.content)
+        decision = str(parsed.get("decision", "")).strip()
+        document_paths = parsed.get("document_paths", [])
+        inline_reference_text = str(parsed.get("inline_reference_text", "")).strip()
 
-        source_blocks = [
-            f"## Source: {source['path']}\n\n{source['content']}" for source in reference_sources
-        ]
+        if decision not in {"no_references", "use_references", "ask_again"}:
+            decision = "ask_again"
+        if not isinstance(document_paths, list):
+            document_paths = []
+        normalized_paths = [str(path).strip() for path in document_paths if str(path).strip()]
+        return {
+            "decision": decision,
+            "document_paths": normalized_paths,
+            "inline_reference_text": inline_reference_text,
+        }
+
+    def _build_reference_summary_from_router_result(self, reference_result: Mapping[str, Any]) -> str:
+        document_paths = [Path(_normalize_reference_path(path)) for path in reference_result.get("document_paths", [])]
+        inline_reference_text = str(reference_result.get("inline_reference_text", "")).strip()
+
+        source_blocks: list[str] = []
+        for path in document_paths:
+            if not path.exists() or not path.is_file():
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+            source_blocks.append(f"## Source: {path.resolve()}\n\n{content}")
+
+        if inline_reference_text:
+            source_blocks.append(f"## Inline Reference Content\n\n{inline_reference_text}")
+
         return "\n\n".join(source_blocks)
 
     async def _handle_create_skill_turn(self, query: str) -> dict[str, Any]:
@@ -893,10 +958,7 @@ def _extract_reference_paths(text: str) -> list[Path]:
     candidates = re.findall(r"(/[^\s,，;；]+|Users/[^\s,，;；]+)", text)
     paths: list[Path] = []
     for candidate in candidates:
-        cleaned = candidate.strip().rstrip("。.!?)）]》”\"'")
-        if cleaned.startswith("Users/"):
-            cleaned = "/" + cleaned
-        path = Path(cleaned)
+        path = Path(_normalize_reference_path(candidate))
         if path.exists() and path.is_file():
             paths.append(path.resolve())
     unique_paths: list[Path] = []
@@ -918,6 +980,13 @@ def _load_reference_sources_from_query(text: str) -> list[dict[str, str]]:
             content = path.read_text(encoding="utf-8", errors="ignore")
         sources.append({"path": str(path), "content": content})
     return sources
+
+
+def _normalize_reference_path(text: str) -> str:
+    cleaned = str(text).strip().rstrip("。.!?)）]》”\"'")
+    if cleaned.startswith("Users/"):
+        cleaned = "/" + cleaned
+    return cleaned
 
 
 def _parse_router_json(text: str) -> dict[str, Any]:
