@@ -247,6 +247,31 @@ def test_load_reference_sources_from_query_reads_file_content():
     assert "本外币公司存款日均余额" in sources[0]["content"]
 
 
+def test_build_reference_summary_preserves_full_reference_source_content(tmp_path):
+    session = DataAgentSession(
+        data_agent=object(),
+        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
+        source_config={},
+        ferry_config_path=tmp_path / "rendered.yaml",
+        user_id="tester",
+        session_id="session-reference-full",
+        output_root=tmp_path / "outputs",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
+    )
+
+    import asyncio
+
+    summary = asyncio.run(
+        session._build_reference_summary(
+            "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
+        )
+    )
+
+    assert "## Source: /Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md" in summary
+    assert "一、本外币公司存款日均余额" in summary
+    assert "（四）分析计算方法" in summary
+
+
 def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tmp_path):
     session = DataAgentSession(
         data_agent=object(),

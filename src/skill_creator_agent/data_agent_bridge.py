@@ -18,7 +18,6 @@ from skill_creator_agent.paths import package_path, project_path
 from skill_creator_agent.prompts import (
     DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
-    REFERENCE_DOCUMENT_SUMMARIZER,
     SKILL_EXECUTION_REMINDER,
     STAGE_CONTEXT_ASK_REFERENCES,
     STAGE_CONTEXT_CREATE_SKILL,
@@ -405,28 +404,7 @@ class DataAgentSession:
         source_blocks = [
             f"## Source: {source['path']}\n\n{source['content']}" for source in reference_sources
         ]
-        combined_sources = "\n\n".join(source_blocks)
-
-        llm = llm_manager.get_llm(self.router_model_name)
-        if llm is None:
-            return combined_sources
-
-        prompt = load_prompt(
-            REFERENCE_DOCUMENT_SUMMARIZER,
-            user_goal=self.user_goal or "Unknown goal",
-            user_reply=query,
-            reference_sources=combined_sources,
-        )
-        response = await llm.ainvoke(
-            [
-                {"role": "system", "content": prompt},
-            ],
-            temperature=0,
-        )
-        summary = str(response.content).strip()
-        if not summary:
-            return combined_sources
-        return summary
+        return "\n\n".join(source_blocks)
 
     async def _handle_create_skill_turn(self, query: str) -> dict[str, Any]:
         skill_name = _extract_planned_skill_slug(self.plan_summary) or _slugify_text(self.user_goal)
