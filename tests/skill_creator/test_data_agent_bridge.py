@@ -9,6 +9,8 @@ from ferry.interface.sdk.agent import DataAgent
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
+    _extract_reference_paths,
+    _load_reference_sources_from_query,
     _ask_references_policy,
     _create_skill_policy,
     _execute_skill_policy,
@@ -224,6 +226,25 @@ def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
     assert "graph_get_object_types" in tool_names
     assert "create_skill_scaffold" not in tool_names
     assert "write_file" not in tool_names
+
+
+def test_extract_reference_paths_finds_existing_file():
+    paths = _extract_reference_paths(
+        "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
+    )
+
+    assert paths
+    assert paths[0].name == "banks.md"
+
+
+def test_load_reference_sources_from_query_reads_file_content():
+    sources = _load_reference_sources_from_query(
+        "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
+    )
+
+    assert len(sources) == 1
+    assert sources[0]["path"].endswith("banks.md")
+    assert "本外币公司存款日均余额" in sources[0]["content"]
 
 
 def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tmp_path):

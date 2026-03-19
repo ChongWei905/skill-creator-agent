@@ -18,6 +18,7 @@ from skill_creator_agent.paths import package_path, project_path
 from skill_creator_agent.prompts import (
     DISCOVERY_TRANSITION_ROUTER,
     GRAPH_DB_INSTRUCTION,
+    REFERENCE_DOCUMENT_SUMMARIZER,
     SKILL_EXECUTION_REMINDER,
     STAGE_CONTEXT_ASK_REFERENCES,
     STAGE_CONTEXT_CREATE_SKILL,
@@ -367,7 +368,7 @@ class DataAgentSession:
         return next_stage
 
     async def _handle_reference_answer_turn(self, query: str) -> dict[str, Any]:
-        self.reference_summary = _compact_text(query, limit=1000)
+        self.reference_summary = await self._build_reference_summary(query)
         self.no_references = _is_negative_reference_reply(query)
 
         if self.runtime.settings.graph_enabled:
@@ -392,6 +393,40 @@ class DataAgentSession:
         self.active_turn_stage = "propose_plan"
         self.workflow_stage = "awaiting_plan_approval"
         return plan_response
+
+    async def _build_reference_summary(self, query: str) -> str:
+        if _is_negative_reference_reply(query):
+            return _compact_text(query, limit=1000)
+
+        reference_sources = _load_reference_sources_from_query(query)
+        if not reference_sources:
+            return _compact_text(query, limit=2000)
+
+        source_blocks = [
+            f"## Source: {source['path']}\n\n{source['content']}" for source in reference_sources
+        ]
+        combined_sources = "\n\n".join(source_blocks)
+
+        llm = llm_manager.get_llm(self.router_model_name)
+        if llm is None:
+            return combined_sources
+
+        prompt = load_prompt(
+            REFERENCE_DOCUMENT_SUMMARIZER,
+            user_goal=self.user_goal or "Unknown goal",
+            user_reply=query,
+            reference_sources=combined_sources,
+        )
+        response = await llm.ainvoke(
+            [
+                {"role": "system", "content": prompt},
+            ],
+            temperature=0,
+        )
+        summary = str(response.content).strip()
+        if not summary:
+            return combined_sources
+        return summary
 
     async def _handle_create_skill_turn(self, query: str) -> dict[str, Any]:
         skill_name = _extract_planned_skill_slug(self.plan_summary) or _slugify_text(self.user_goal)
@@ -874,6 +909,34 @@ def _is_negative_reference_reply(text: str) -> bool:
         "no",
     }
     return normalized in negatives or "没有" in normalized
+
+
+def _extract_reference_paths(text: str) -> list[Path]:
+    candidates = re.findall(r"(/[^\s,，;；]+)", text)
+    paths: list[Path] = []
+    for candidate in candidates:
+        path = Path(candidate.strip().rstrip("。.!?)）]》”\"'"))
+        if path.exists() and path.is_file():
+            paths.append(path.resolve())
+    unique_paths: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
+        unique_paths.append(path)
+    return unique_paths
+
+
+def _load_reference_sources_from_query(text: str) -> list[dict[str, str]]:
+    sources: list[dict[str, str]] = []
+    for path in _extract_reference_paths(text):
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            content = path.read_text(encoding="utf-8", errors="ignore")
+        sources.append({"path": str(path), "content": content})
+    return sources
 
 
 def _parse_router_json(text: str) -> dict[str, Any]:
