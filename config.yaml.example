@@ -1,6 +1,3 @@
-BOOTSTRAP:
-  ferry_root: "../ferry"
-
 AGENT_CONFIG:
   name: "skill_creator"
   backend: "langgraph"

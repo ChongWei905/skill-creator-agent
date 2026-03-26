@@ -1,55 +1,25 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from skill_creator_agent import entrypoint
 
 
-def test_resolve_config_path_uses_repo_default(tmp_path: Path):
-    resolved = entrypoint._resolve_config_path(argv=[], repo_root=tmp_path)
+def test_ensure_ferry_importable_requires_installed_ferry(monkeypatch):
+    monkeypatch.setattr(entrypoint, "_can_import_ferry", lambda: False)
 
-    assert resolved == (tmp_path / "config.yaml").resolve()
-
-
-def test_resolve_config_path_prefers_explicit_flag(tmp_path: Path):
-    config_path = tmp_path / "custom.yaml"
-
-    resolved = entrypoint._resolve_config_path(
-        argv=["--config", str(config_path)],
-        repo_root=tmp_path,
-    )
-
-    assert resolved == config_path.resolve()
-
-
-def test_resolve_ferry_root_from_config_accepts_repo_relative_path(tmp_path: Path):
-    ferry_repo = tmp_path / "ferry-src"
-    ferry_pkg = ferry_repo / "ferry"
-    ferry_pkg.mkdir(parents=True)
-    (ferry_pkg / "__init__.py").write_text("", encoding="utf-8")
-
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "BOOTSTRAP:\n"
-        "  ferry_root: ./ferry-src\n",
-        encoding="utf-8",
-    )
-
-    resolved = entrypoint._resolve_ferry_root_from_config(
-        config_path=config_path,
-        repo_root=tmp_path,
-    )
-
-    assert resolved == ferry_repo.resolve()
+    with pytest.raises(RuntimeError, match="Install Ferry into this interpreter"):
+        entrypoint._ensure_ferry_importable()
 
 
 def test_main_bootstraps_before_importing_cli(monkeypatch):
     calls: list[tuple[str, list[str]]] = []
 
-    def fake_bootstrap(argv):
-        calls.append(("bootstrap", list(argv)))
+    def fake_bootstrap():
+        calls.append(("bootstrap", []))
 
     def fake_cli_main(argv):
         calls.append(("cli", list(argv)))
@@ -62,6 +32,6 @@ def test_main_bootstraps_before_importing_cli(monkeypatch):
 
     assert result == 7
     assert calls == [
-        ("bootstrap", ["--turn", "hello"]),
+        ("bootstrap", []),
         ("cli", ["--turn", "hello"]),
     ]

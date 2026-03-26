@@ -313,19 +313,7 @@ flowchart TD
 要求：
 
 - Python 3.11+
-- 当前 Python 环境已经安装 Ferry，或者你本地有一个可用的 Ferry 源码目录
-
-Ferry 的解析顺序是：
-
-1. 当前 Python 环境如果已经可以直接导入 `ferry`，就直接使用当前环境
-2. 否则读取 `config.yaml` 中的 `BOOTSTRAP.ferry_root`
-
-例如：
-
-```yaml
-BOOTSTRAP:
-  ferry_root: "../ferry"
-```
+- 当前 Python 环境已经安装 Ferry 及其依赖
 
 ### 2. 准备配置
 
@@ -426,4 +414,3 @@ python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
 - draft skill 先执行再发布，正式 `skills/` 不直接承担试错过程
 - `PlanAgent` 输出的是面向用户确认的业务逻辑文档，不是内部实现规格书
 - `BuildRunAgent` 负责技术修复闭环，但当用户认为业务逻辑不对时，会回退到方案修订，而不是继续在错误实现上硬改
-
