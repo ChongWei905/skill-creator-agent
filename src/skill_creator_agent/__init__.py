@@ -3,7 +3,6 @@ from __future__ import annotations
 from importlib import import_module
 
 __all__ = [
-    "SkillCreatorAgent",
     "GraphConnector",
     "SkillCreatorRuntime",
     "DataAgentSession",
@@ -24,7 +23,6 @@ __all__ = [
 
 
 _EXPORTS = {
-    "SkillCreatorAgent": ("skill_creator_agent.agent", "SkillCreatorAgent"),
     "GraphConnector": ("skill_creator_agent.connectors", "GraphConnector"),
     "SkillCreatorRuntime": ("skill_creator_agent.runtime", "SkillCreatorRuntime"),
     "DataAgentSession": ("skill_creator_agent.data_agent_bridge", "DataAgentSession"),

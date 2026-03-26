@@ -303,7 +303,6 @@ flowchart TD
 │       ├── ferry_tools.py
 │       └── runtime.py
 ├── tests/
-└── logs/
 ```
 
 ## 快速开始
