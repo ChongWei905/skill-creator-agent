@@ -10,7 +10,7 @@ def test_runtime_lists_and_reads_fixture_skill():
     runtime = SkillCreatorRuntime.from_config(
         {
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
             }
         }
     )
@@ -29,7 +29,7 @@ def test_runtime_executes_script_and_returns_structured_result():
     runtime = SkillCreatorRuntime.from_config(
         {
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
             }
         }
     )

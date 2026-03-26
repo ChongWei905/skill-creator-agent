@@ -7,7 +7,7 @@ from skill_creator_agent.loaders import SkillLoader
 
 
 def test_skill_loader_loads_fixture_skill():
-    loader = SkillLoader(resolve_local_path("fixtures/minimal_skills"))
+    loader = SkillLoader(resolve_local_path("tests/fixtures/minimal_skills"))
 
     skills = loader.load_all()
     skill = skills["skill-creator-smoke"]

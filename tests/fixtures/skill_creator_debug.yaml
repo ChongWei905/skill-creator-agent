@@ -14,7 +14,7 @@ MODEL:
       api_key: "test-key"
 
 SKILL_CREATOR:
-  skills_root: "fixtures/minimal_skills"
+  skills_root: "tests/fixtures/minimal_skills"
   graph_enabled: true
   graph_base_url: "http://127.0.0.1:8000"
   graph_timeout: 30
@@ -35,7 +35,7 @@ TOOLS:
       module: "ferry.actions.tools.local_tool.tools"
   skills:
     - name: "skill-creator-smoke"
-      path: "fixtures/minimal_skills/skill-creator-smoke"
+      path: "tests/fixtures/minimal_skills/skill-creator-smoke"
       category: "workflow"
       description: "Minimal fixture skill used to validate skill_creator migration wiring."
       tags: ["skill-creator", "smoke"]

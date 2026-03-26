@@ -5,13 +5,13 @@ from ferry.core.cbb.base_agent import BaseAgent
 from ferry.core.flex.agent import FlexAgent
 
 from skill_creator_agent.agent import SkillCreatorAgent
-from skill_creator_agent.paths import package_path
+from skill_creator_agent.paths import project_path
 
 
 def test_skill_creator_agent_from_yaml_uses_runtime_fixture(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
-        package_path("skill_creator_debug.yaml")
+        project_path("tests", "fixtures", "skill_creator_debug.yaml")
     )
 
     skills = agent.list_skills()
@@ -35,7 +35,7 @@ def test_skill_creator_agent_delegates_script_execution(monkeypatch):
                 }
             },
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
             }
         }
     )
@@ -58,7 +58,7 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch)
                 }
             },
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
                 "graph_enabled": True,
             },
         }
@@ -95,7 +95,7 @@ def test_skill_creator_agent_materializes_ferry_config(monkeypatch, tmp_path):
                 }
             },
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
             },
         }
     )
@@ -121,7 +121,7 @@ def test_skill_creator_agent_build_ferry_config_requires_api_key(monkeypatch):
                     }
                 },
                 "SKILL_CREATOR": {
-                    "skills_root": "fixtures/minimal_skills",
+                    "skills_root": "tests/fixtures/minimal_skills",
                 },
             }
         )

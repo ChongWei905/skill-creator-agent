@@ -29,12 +29,12 @@ def test_skill_creator_settings_use_project_skills_default(monkeypatch):
 
 def test_skill_creator_settings_allow_yaml_override(monkeypatch):
     monkeypatch.delenv(ENV_SKILLS_ROOT, raising=False)
-    fixture_root = resolve_local_path("fixtures/minimal_skills")
+    fixture_root = resolve_local_path("tests/fixtures/minimal_skills")
 
     settings = resolve_skill_creator_settings(
         {
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
                 "graph_enabled": True,
             }
         }
@@ -54,7 +54,7 @@ def test_skill_creator_settings_env_wins_over_config(monkeypatch, tmp_path: Path
     settings = resolve_skill_creator_settings(
         {
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
                 "graph_enabled": False,
             }
         }
@@ -72,7 +72,7 @@ def test_skill_creator_settings_accept_graph_endpoint_overrides(monkeypatch):
     settings = resolve_skill_creator_settings(
         {
             "SKILL_CREATOR": {
-                "skills_root": "fixtures/minimal_skills",
+                "skills_root": "tests/fixtures/minimal_skills",
                 "graph_enabled": True,
                 "graph_base_url": "http://127.0.0.1:8000",
                 "graph_timeout": 30,

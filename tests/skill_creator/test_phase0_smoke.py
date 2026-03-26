@@ -6,10 +6,10 @@ from pathlib import Path
 import yaml
 
 from skill_creator_agent.agent import SkillCreatorAgent
-from skill_creator_agent.paths import package_path, resolve_local_path
+from skill_creator_agent.paths import project_path, resolve_local_path
 
-DEBUG_CONFIG_PATH = package_path("skill_creator_debug.yaml")
-SMOKE_SKILL_REL_PATH = "fixtures/minimal_skills/skill-creator-smoke"
+DEBUG_CONFIG_PATH = project_path("tests", "fixtures", "skill_creator_debug.yaml")
+SMOKE_SKILL_REL_PATH = "tests/fixtures/minimal_skills/skill-creator-smoke"
 
 
 def _parse_frontmatter(skill_md_path: Path) -> tuple[dict[str, str], str]:
@@ -39,7 +39,7 @@ def test_phase0_debug_config_registers_smoke_skill(monkeypatch):
     skills = agent.list_skills()
     skill_meta = skills[0]
 
-    assert Path(agent.config["SKILL_CREATOR"]["skills_root"]).resolve() == resolve_local_path("fixtures/minimal_skills")
+    assert Path(agent.config["SKILL_CREATOR"]["skills_root"]).resolve() == resolve_local_path("tests/fixtures/minimal_skills")
     assert skill_meta["name"] == "skill-creator-smoke"
     assert Path(skill_meta["path"]).resolve() == skill_root
     assert skill_meta["scripts"][0]["name"] == "echo_input"

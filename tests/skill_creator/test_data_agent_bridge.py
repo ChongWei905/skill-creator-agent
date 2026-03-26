@@ -121,7 +121,7 @@ def test_load_config_dict_raises_for_missing_explicit_config(tmp_path):
 def test_build_data_agent_session_materializes_runtime_bridge(tmp_path):
     session = _make_session(
         tmp_path,
-        skills_root="src/skill_creator_agent/fixtures/minimal_skills",
+        skills_root="tests/fixtures/minimal_skills",
     )
 
     chat_agent = session.data_agent.build_agent_graph("chat")
