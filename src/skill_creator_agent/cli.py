@@ -157,9 +157,9 @@ async def async_main(argv: list[str] | None = None) -> int:
         await _run_turn(session, user_input, show_state_json=args.show_state_json)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run the synchronous CLI entrypoint."""
-    return asyncio.run(async_main())
+    return asyncio.run(async_main(argv))
 
 
 async def _run_turn(session: Any, query: str, *, show_state_json: bool) -> None:

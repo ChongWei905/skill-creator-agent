@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from skill_creator_agent.cli import main
+from skill_creator_agent.entrypoint import main
 
 
 if __name__ == "__main__":

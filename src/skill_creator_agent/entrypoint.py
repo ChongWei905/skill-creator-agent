@@ -11,15 +11,20 @@ BOOTSTRAP_SECTION = "BOOTSTRAP"
 FERRY_ROOT_KEY = "ferry_root"
 
 
-def bootstrap_script_imports(argv: Sequence[str] | None = None) -> None:
-    """Prepare ``sys.path`` so the repository script can import the local package and Ferry."""
-    repo_root = Path(__file__).resolve().parents[1]
-    src_root = repo_root / "src"
-    src_root_text = str(src_root)
-    if src_root_text not in sys.path:
-        sys.path.insert(0, src_root_text)
+def main(argv: list[str] | None = None) -> int:
+    """Bootstrap Ferry from config and then delegate to the CLI entrypoint."""
+    cli_argv = list(sys.argv[1:] if argv is None else argv)
+    bootstrap_runtime(cli_argv)
 
-    _ensure_ferry_importable(argv=argv or sys.argv, repo_root=repo_root)
+    from skill_creator_agent.cli import main as cli_main
+
+    return cli_main(cli_argv)
+
+
+def bootstrap_runtime(argv: Sequence[str] | None = None) -> None:
+    """Ensure Ferry is importable before any Ferry-dependent modules are loaded."""
+    repo_root = _project_root()
+    _ensure_ferry_importable(argv=argv or sys.argv[1:], repo_root=repo_root)
 
 
 def _ensure_ferry_importable(*, argv: Sequence[str], repo_root: Path) -> None:
@@ -55,7 +60,7 @@ def _can_import_ferry() -> bool:
         if exc.name and exc.name.startswith("ferry"):
             return False
         raise RuntimeError(
-            f"Ferry is present in the current Python environment, but a required dependency is missing: "
+            "Ferry is present in the current Python environment, but a required dependency is missing: "
             f"{exc.name}. Install Ferry dependencies in this interpreter first."
         ) from exc
 
@@ -107,3 +112,7 @@ def _normalize_ferry_root(candidate: Path) -> Path | None:
         return resolved.parent
 
     return None
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]

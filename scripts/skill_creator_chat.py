@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
-from _bootstrap import bootstrap_script_imports
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+SRC_ROOT_TEXT = str(SRC_ROOT)
+if SRC_ROOT_TEXT not in sys.path:
+    sys.path.insert(0, SRC_ROOT_TEXT)
 
-bootstrap_script_imports(sys.argv)
-
-from skill_creator_agent.cli import main
+from skill_creator_agent.entrypoint import main
 
 
 if __name__ == "__main__":
