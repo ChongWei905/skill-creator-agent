@@ -12,9 +12,7 @@ __all__ = [
     "build_ferry_config",
     "materialize_ferry_config",
     "DEFAULT_VERIFICATION_CONFIG",
-    "DEFAULT_VERIFICATION_CONFIG_EXAMPLE",
     "DEFAULT_VERIFICATION_OUTPUT_ROOT",
-    "resolve_default_verification_config_path",
     "DEFAULT_SKILLS_ROOT",
     "DEFAULT_GRAPH_BASE_URL",
     "ENV_SKILLS_ROOT",
@@ -33,17 +31,9 @@ _EXPORTS = {
     "build_data_agent_session": ("skill_creator_agent.data_agent_bridge", "build_data_agent_session"),
     "extract_last_message_text": ("skill_creator_agent.data_agent_bridge", "extract_last_message_text"),
     "DEFAULT_VERIFICATION_CONFIG": ("skill_creator_agent.data_agent_bridge", "DEFAULT_VERIFICATION_CONFIG"),
-    "DEFAULT_VERIFICATION_CONFIG_EXAMPLE": (
-        "skill_creator_agent.data_agent_bridge",
-        "DEFAULT_VERIFICATION_CONFIG_EXAMPLE",
-    ),
     "DEFAULT_VERIFICATION_OUTPUT_ROOT": (
         "skill_creator_agent.data_agent_bridge",
         "DEFAULT_VERIFICATION_OUTPUT_ROOT",
-    ),
-    "resolve_default_verification_config_path": (
-        "skill_creator_agent.data_agent_bridge",
-        "resolve_default_verification_config_path",
     ),
     "build_ferry_config": ("skill_creator_agent.ferry_config", "build_ferry_config"),
     "materialize_ferry_config": ("skill_creator_agent.ferry_config", "materialize_ferry_config"),

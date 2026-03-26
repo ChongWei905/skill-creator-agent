@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from ferry.core.cbb.base_agent import BaseAgent
 from ferry.core.flex.agent import FlexAgent
 
@@ -26,6 +27,13 @@ def test_skill_creator_agent_delegates_script_execution(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     agent = SkillCreatorAgent.from_config(
         {
+            "MODEL": {
+                "skill_creator_chat": {
+                    "provider": "openai",
+                    "model_type": "chat",
+                    "params": {"model": "test-chat-model", "api_key": "test-key"},
+                }
+            },
             "SKILL_CREATOR": {
                 "skills_root": "fixtures/minimal_skills",
             }
@@ -46,7 +54,7 @@ def test_skill_creator_agent_builds_ferry_config_with_runtime_tools(monkeypatch)
                 "demo_chat": {
                     "provider": "openai",
                     "model_type": "chat",
-                    "params": {"model": "gpt-4o-mini"},
+                    "params": {"model": "gpt-4o-mini", "api_key": "test-key"},
                 }
             },
             "SKILL_CREATOR": {
@@ -83,7 +91,7 @@ def test_skill_creator_agent_materializes_ferry_config(monkeypatch, tmp_path):
                 "demo_chat": {
                     "provider": "openai",
                     "model_type": "chat",
-                    "params": {"model": "gpt-4o-mini"},
+                    "params": {"model": "gpt-4o-mini", "api_key": "test-key"},
                 }
             },
             "SKILL_CREATOR": {
@@ -98,3 +106,22 @@ def test_skill_creator_agent_materializes_ferry_config(monkeypatch, tmp_path):
     assert path.exists()
     assert "agent_type: skill_creator" in rendered
     assert "create_skill_scaffold" in rendered
+
+
+def test_skill_creator_agent_build_ferry_config_requires_api_key(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    with pytest.raises(ValueError, match="api_key is required"):
+        SkillCreatorAgent.from_config(
+            {
+                "MODEL": {
+                    "demo_chat": {
+                        "provider": "openai",
+                        "model_type": "chat",
+                        "params": {"model": "gpt-4o-mini"},
+                    }
+                },
+                "SKILL_CREATOR": {
+                    "skills_root": "fixtures/minimal_skills",
+                },
+            }
+        )

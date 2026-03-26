@@ -7,7 +7,6 @@ import skill_creator_agent.data_agent_bridge as bridge_module
 
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
-    DEFAULT_VERIFICATION_CONFIG_EXAMPLE,
     DataAgentSession,
     _augment_build_review_message,
     _augment_build_response_with_final_result,
@@ -17,7 +16,6 @@ from skill_creator_agent.data_agent_bridge import (
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
-    resolve_default_verification_config_path,
 )
 from skill_creator_agent.orchestration import (
     AWAIT_BUILD_REVIEW,
@@ -37,9 +35,25 @@ async def _async_value(value):
     return value
 
 
+def _minimal_model_config() -> dict[str, object]:
+    return {
+        "MODEL": {
+            "skill_creator_chat": {
+                "provider": "openai",
+                "model_type": "chat",
+                "params": {
+                    "model": "test-chat-model",
+                    "api_key": "test-api-key",
+                },
+            }
+        }
+    }
+
+
 def _make_session(tmp_path: Path, *, skills_root: str | Path | None = None) -> DataAgentSession:
     return build_data_agent_session(
         {
+            **_minimal_model_config(),
             "SKILL_CREATOR": {
                 "skills_root": str(skills_root or tmp_path / "skills"),
                 "graph_enabled": False,
@@ -51,16 +65,28 @@ def _make_session(tmp_path: Path, *, skills_root: str | Path | None = None) -> D
     )
 
 
-def test_load_config_dict_reads_yaml_file():
-    config = load_config_dict(DEFAULT_VERIFICATION_CONFIG_EXAMPLE)
+def test_load_config_dict_reads_yaml_file(tmp_path):
+    config_path = tmp_path / "test_config.yaml"
+    config_path.write_text(
+        "MODEL:\n"
+        "  skill_creator_chat:\n"
+        "    provider: openai\n"
+        "    model_type: chat\n"
+        "    params:\n"
+        "      model: test-chat-model\n"
+        "      api_key: test-api-key\n",
+        encoding="utf-8",
+    )
+    config = load_config_dict(config_path)
 
-    assert config["AGENT_CONFIG"]["agent_type"] == "skill_creator"
-    assert config["MODEL"]
+    assert config["MODEL"]["skill_creator_chat"]["params"]["api_key"] == "test-api-key"
 
 
-def test_load_config_dict_merges_mapping_over_default_config():
+def test_load_config_dict_merges_mapping_over_default_config(monkeypatch):
+    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG", Path("/tmp/missing-config.yaml"))
     config = load_config_dict(
         {
+            **_minimal_model_config(),
             "SKILL_CREATOR": {
                 "graph_enabled": False,
             }
@@ -71,17 +97,25 @@ def test_load_config_dict_merges_mapping_over_default_config():
     assert config["SKILL_CREATOR"]["graph_enabled"] is False
 
 
-def test_resolve_default_verification_config_path_falls_back_to_example(monkeypatch, tmp_path):
+def test_load_config_dict_uses_empty_defaults_when_config_yaml_is_missing(monkeypatch, tmp_path):
     missing_config = tmp_path / "config.yaml"
-    example_config = tmp_path / "config.yaml.example"
-    example_config.write_text("MODEL: {}\n", encoding="utf-8")
 
     monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG", missing_config)
-    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG_EXAMPLE", example_config)
 
-    resolved = resolve_default_verification_config_path()
+    resolved = load_config_dict()
 
-    assert resolved == example_config
+    assert resolved == {}
+
+
+def test_load_config_dict_raises_for_missing_explicit_config(tmp_path):
+    missing_config = tmp_path / "missing.yaml"
+
+    try:
+        load_config_dict(missing_config)
+    except FileNotFoundError as exc:
+        assert "missing.yaml" in str(exc)
+    else:
+        raise AssertionError("Expected explicit missing config path to raise FileNotFoundError")
 
 
 def test_build_data_agent_session_materializes_runtime_bridge(tmp_path):
@@ -151,6 +185,7 @@ def test_preview_turn_ferry_config_for_empty_discovery_has_no_local_tools(tmp_pa
 def test_preview_turn_ferry_config_for_planning_uses_graph_tools_only(tmp_path):
     session = build_data_agent_session(
         {
+            **_minimal_model_config(),
             "SKILL_CREATOR": {
                 "skills_root": str(tmp_path / "skills"),
                 "graph_enabled": True,

@@ -7,7 +7,6 @@ from typing import Any
 
 from skill_creator_agent.data_agent_bridge import (
     DEFAULT_VERIFICATION_CONFIG,
-    DEFAULT_VERIFICATION_CONFIG_EXAMPLE,
     build_data_agent_session,
     extract_last_message_text,
 )
@@ -22,10 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         default=str(DEFAULT_VERIFICATION_CONFIG),
-        help=(
-            "Base skill_creator config YAML. Prefers project config.yaml and "
-            f"falls back to {DEFAULT_VERIFICATION_CONFIG_EXAMPLE.name} when config.yaml is missing."
-        ),
+        help="Base skill_creator config YAML. Uses project config.yaml when present.",
     )
     parser.add_argument(
         "--skills-root",

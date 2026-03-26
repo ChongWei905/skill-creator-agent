@@ -37,7 +37,6 @@ from skill_creator_agent.paths import project_path
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
 DEFAULT_VERIFICATION_CONFIG = project_path("config.yaml")
-DEFAULT_VERIFICATION_CONFIG_EXAMPLE = project_path("config.yaml.example")
 DEFAULT_VERIFICATION_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")
 DEFAULT_MATERIALIZED_CONFIG_ROOT = project_path(".tmp", "generated_configs")
 
@@ -557,21 +556,14 @@ def build_data_agent_session(
 
 def load_config_dict(config: str | Path | Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Load the effective configuration mapping, merging local overrides over defaults."""
-    base_config = _load_yaml_mapping(resolve_default_verification_config_path())
+    base_config = _load_default_config()
     if config is None:
         return base_config
     if isinstance(config, Mapping):
         return _deep_merge_dicts(base_config, dict(config))
     path = Path(config).expanduser().resolve()
-    payload = _load_yaml_mapping(path)
+    payload = _load_yaml_mapping(path, required=path != DEFAULT_VERIFICATION_CONFIG)
     return _deep_merge_dicts(base_config, payload)
-
-
-def resolve_default_verification_config_path() -> Path:
-    """Return the preferred local config path, falling back to the example file."""
-    if DEFAULT_VERIFICATION_CONFIG.exists():
-        return DEFAULT_VERIFICATION_CONFIG
-    return DEFAULT_VERIFICATION_CONFIG_EXAMPLE
 
 
 def extract_last_message_text(response: Any) -> str:
@@ -587,9 +579,17 @@ def extract_last_message_text(response: Any) -> str:
     return str(response)
 
 
-def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
+def _load_default_config() -> dict[str, Any]:
+    if not DEFAULT_VERIFICATION_CONFIG.exists():
+        return {}
+    return _load_yaml_mapping(DEFAULT_VERIFICATION_CONFIG, required=True)
+
+
+def _load_yaml_mapping(path: str | Path, *, required: bool = False) -> dict[str, Any]:
     resolved = Path(path).expanduser().resolve()
     if not resolved.exists():
+        if required:
+            raise FileNotFoundError(f"Config file not found: {resolved}")
         return {}
     payload = yaml.safe_load(resolved.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):

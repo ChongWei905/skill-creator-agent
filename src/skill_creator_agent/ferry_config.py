@@ -152,12 +152,14 @@ def build_ferry_config(
         include_skills=include_skills,
     )
     merged = _deep_merge(base_config, user_config)
-    return _normalize_ferry_config(
+    normalized = _normalize_ferry_config(
         merged,
         runtime=runtime,
         allowed_local_tool_names=allowed_local_tool_names,
         include_skills=include_skills,
     )
+    _validate_required_model_config(normalized)
+    return normalized
 
 
 def materialize_ferry_config(
@@ -383,6 +385,36 @@ def _build_runtime_tools(runtime: SkillCreatorRuntime) -> list[dict[str, Any]]:
     if runtime.settings.graph_enabled:
         tools.extend(DEFAULT_GRAPH_TOOLS)
     return tools
+
+
+def _validate_required_model_config(config: Mapping[str, Any]) -> None:
+    model_cfg = config.get("MODEL")
+    if not isinstance(model_cfg, Mapping) or not model_cfg:
+        raise ValueError(
+            "Missing MODEL configuration. Provide config.yaml with a MODEL section before starting the CLI."
+        )
+
+    first_name = next(iter(model_cfg))
+    first_model = model_cfg.get(first_name)
+    if not isinstance(first_model, Mapping):
+        raise ValueError(f"MODEL.{first_name} must be a mapping.")
+
+    provider = str(first_model.get("provider", "")).strip()
+    model_type = str(first_model.get("model_type", "")).strip()
+    params = first_model.get("params")
+    if not provider:
+        raise ValueError(f"MODEL.{first_name}.provider is required.")
+    if not model_type:
+        raise ValueError(f"MODEL.{first_name}.model_type is required.")
+    if not isinstance(params, Mapping):
+        raise ValueError(f"MODEL.{first_name}.params must be a mapping.")
+    if not str(params.get("model", "")).strip():
+        raise ValueError(f"MODEL.{first_name}.params.model is required.")
+    if not str(params.get("api_key", "")).strip():
+        raise ValueError(
+            f"MODEL.{first_name}.params.api_key is required. "
+            "Create config.yaml or pass --config with a real model credential."
+        )
 
 
 def _dedupe_strings(values: list[str]) -> list[str]:

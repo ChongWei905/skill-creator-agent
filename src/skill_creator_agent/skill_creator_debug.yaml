@@ -5,6 +5,14 @@ AGENT_CONFIG:
   agent_type: "skill_creator"
   debug: true
 
+MODEL:
+  skill_creator_chat:
+    provider: "openai"
+    model_type: "chat"
+    params:
+      model: "debug-chat-model"
+      api_key: "test-key"
+
 SKILL_CREATOR:
   skills_root: "fixtures/minimal_skills"
   graph_enabled: true

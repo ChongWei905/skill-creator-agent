@@ -329,7 +329,7 @@ BOOTSTRAP:
 
 ### 2. 准备配置
 
-本项目提交中只保留 `config.yaml.example`，本地运行时请复制成 `config.yaml`：
+本项目提交中只保留 `config.yaml.example` 作为模板，运行时只会读取真实的 `config.yaml`：
 
 ```bash
 cp config.yaml.example config.yaml
@@ -348,6 +348,8 @@ cp config.yaml.example config.yaml
 - `SKILL_CREATOR.graph_enabled`
 - `SKILL_CREATOR.graph_base_url`
 - `SKILL_CREATOR.graph_timeout`
+
+如果 `config.yaml` 不存在，系统会退回代码内置默认值；但像 `MODEL.*.params.api_key` 这类必需字段如果缺失，会直接报错，而不会再从 `config.yaml.example` 回退加载。
 
 ### 3. 启动 CLI
 
@@ -425,4 +427,3 @@ python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
 - `PlanAgent` 输出的是面向用户确认的业务逻辑文档，不是内部实现规格书
 - `BuildRunAgent` 负责技术修复闭环，但当用户认为业务逻辑不对时，会回退到方案修订，而不是继续在错误实现上硬改
 
-这也是当前这套设计和原始 `workflow-svc` 最大的差别。

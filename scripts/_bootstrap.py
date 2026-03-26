@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 import yaml
 
