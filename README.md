@@ -1,0 +1,428 @@
+# Skill Creator Agent
+
+`skill-creator-agent` 是一个基于 Ferry/DataAgent 构建的专用子 agent，用来发现、规划、创建、执行并发布本地 skill。
+
+它最初来源于 `workflow-svc` 中的 skill creation 能力迁移，但实现方式不是照搬原服务，而是针对 Ferry 只能一问一答的约束，重构成一套多阶段编排的交互式工作流。
+
+## 项目目标
+
+这个项目解决的是一个很具体的问题：
+
+- 优先复用已有 skill
+- 没有合适 skill 时，通过 human-in-loop 方式确认是否创建新 skill
+- 结合参考资料和图数据库能力产出自然语言方案
+- 自动生成并执行 draft skill
+- 用户确认满意后，再正式发布到 `skills/`
+
+它不是一个单纯的脚手架工具，也不是一组独立脚本，而是一个带状态机、router 和多阶段执行能力的 skill creation runtime。
+
+## 核心能力
+
+- 发现本地已有 skill，并判断是否可直接满足用户目标
+- 在缺少 skill 时，引导用户进入创建流程，而不是直接盲目生成代码
+- 读取参考资料，按业务逻辑生成用户可确认的 `PlanDoc`
+- 基于已批准方案构建 draft skill，并在同一阶段内自动执行和修复
+- 把 draft skill 与正式 `skills/` 隔离，只有用户接受后才发布
+- 支持在 build review 阶段回退到方案修订，而不是直接在错误代码上硬补
+- 暴露图数据库相关工具，支持 schema 查询、样例查询、属性过滤等能力
+
+## 为什么基于 Ferry/DataAgent
+
+本项目的核心约束是：需要复用 Ferry core，但 Ferry 本身更适合一问一答，而 `workflow-svc` 原始流程包含明显的 human-in-loop 多轮确认。
+
+因此本项目的设计重点不是“把所有逻辑塞进一个 prompt”，而是：
+
+- 把原本长链路的人机交互拆成几个明确的阶段
+- 每个阶段单独 materialize 一份 Ferry 配置
+- 每个阶段用一个独立的 `DataAgent` 执行当前回合
+- 用代码态 session state 和统一 router 承接多轮状态
+
+换句话说，Ferry 提供的是单阶段执行能力，本项目在其之上补齐了多阶段编排能力。
+
+## 复用了 Ferry/DataAgent 的哪些能力
+
+当前实现直接复用了这些 Ferry 基础能力：
+
+- `DataAgent.from_config(...)`
+  - 每个阶段都通过渲染后的 Ferry YAML 初始化一个真实 `DataAgent`
+- Ferry 配置渲染
+  - 通过 `build_ferry_config(...)` / `materialize_ferry_config(...)` 生成阶段级配置
+- `llm_manager`
+  - 阶段 agent 和统一 router 都走 Ferry 的模型管理器
+- `tool_manager`
+  - 本地 skill 工具、图数据库工具、文件工具都按 Ferry 的工具机制暴露
+- output/session 管理
+  - 每个阶段都有独立 `session_id` 和 `output_path`
+- system prompt / constraint / tool allowlist 注入
+  - 每个阶段都可以单独设置系统提示词、约束和白名单工具
+
+在当前代码里，这些能力主要落在：
+
+- `src/skill_creator_agent/orchestration/stage_runner.py`
+- `src/skill_creator_agent/ferry_config.py`
+- `src/skill_creator_agent/ferry_tools.py`
+- `src/skill_creator_agent/orchestration/ferry.py`
+
+其中有一个实现细节很重要：
+
+- 每次阶段切换前会重置 Ferry 单例缓存，避免工具注册、skills 暴露、LLM cache 在多阶段之间串味
+
+## 整体架构
+
+### 顶层组件
+
+当前架构收敛为 3 个业务 agent 和 2 个支撑组件：
+
+- `ExistingSkillAgent`
+- `PlanAgent`
+- `BuildRunAgent`
+- `UnifiedRouter`
+- `DraftSkillManager`
+
+### 执行流
+
+```mermaid
+flowchart TD
+    A["User Goal"] --> B["ExistingSkillAgent"]
+    B -->|"已有 skill 可直接完成"| C["Execute Existing Skill"]
+    C --> D["DONE"]
+    B -->|"无匹配 skill"| E["AWAIT_CREATE_CONFIRMATION"]
+    E --> F["AWAIT_REFERENCES"]
+    F --> G["PlanAgent"]
+    G --> H["AWAIT_PLAN_APPROVAL"]
+    H --> I["BuildRunAgent"]
+    I --> J["AWAIT_BUILD_REVIEW"]
+    J -->|"接受并保存"| K["Promote Draft To skills/"]
+    K --> D
+    J -->|"不满意，回退修改"| G
+```
+
+### 顶层状态机
+
+当前 `SessionState` 使用这些状态：
+
+- `IDLE`
+- `DISCOVERING`
+- `AWAIT_CREATE_CONFIRMATION`
+- `AWAIT_REFERENCES`
+- `PLANNING`
+- `AWAIT_PLAN_APPROVAL`
+- `BUILDING_AND_RUNNING`
+- `AWAIT_BUILD_REVIEW`
+- `DONE`
+- `CANCELLED`
+- `ERROR`
+
+这些状态定义在：
+
+- `src/skill_creator_agent/orchestration/models.py`
+
+## 各阶段职责
+
+### 1. ExistingSkillAgent
+
+职责：
+
+- 列出当前可用 skill
+- 判断现有 skill 是否和用户目标匹配
+- 必要时直接执行已有 skill
+- 如果没有合适 skill，则进入“是否创建新 skill”的确认阶段
+
+对应代码：
+
+- `src/skill_creator_agent/orchestration/stages/existing_skill.py`
+
+### 2. PlanAgent
+
+职责：
+
+- 读取用户提供的参考资料
+- 必要时调用图数据库工具确认实体、字段和输出形态
+- 生成用户可确认的自然语言方案文档
+- 当用户对 build 结果不满意时，基于反馈重新修订方案
+
+当前 `PlanAgent` 输出的是一份面向用户的 `PlanDoc`，重点是：
+
+- 业务逻辑是否正确
+- 所需图数据库实体是否合理
+- 执行步骤是否符合预期
+- 最终输出格式是否符合预期
+
+它不会对用户暴露内部文件布局、脚本路径或其它实现细节。
+
+对应代码：
+
+- `src/skill_creator_agent/orchestration/stages/plan.py`
+- `src/skill_creator_agent/prompts/stage_context_plan_agent.md`
+
+### 3. BuildRunAgent
+
+职责：
+
+- 基于已批准方案创建 draft skill
+- 更新 `SKILL.md`
+- 写主脚本
+- `reload_skill`
+- 立刻执行 skill
+- 如果运行失败，则在同一阶段内修复并重试
+- 产出 build review 摘要和原始问题结果
+
+这个阶段的目标不是“写出文件就结束”，而是：
+
+- 代码真的能跑
+- 结果真的回答了原始问题
+- 然后再把当前实现交给用户 review
+
+对应代码：
+
+- `src/skill_creator_agent/orchestration/stages/build_run.py`
+- `src/skill_creator_agent/prompts/stage_context_build_run.md`
+
+## UnifiedRouter 设计
+
+`UnifiedRouter` 是整个工作流的唯一“路口”。
+
+它负责两类事件：
+
+- `user_reply`
+  - 处理用户在创建确认、参考资料、方案批准、构建复核阶段的回复
+- `worker_result`
+  - 处理某个阶段 agent 完成后的下一步跳转
+
+当前实现特点：
+
+- 用户回复统一走 LLM router
+- worker 的显式 `result_code` 优先走确定性映射
+- 如果 worker 结果不明确，再回退到 LLM router contract
+
+路由输入会带上这些关键上下文：
+
+- 当前状态
+- 上一轮问题类型
+- 允许的 decision 集合
+- 允许的 next state 集合
+- 用户目标摘要
+- 当前状态摘要
+- 用户最新回复或 worker 结果
+
+这样 router 不需要“理解整个系统”，而只需要在当前路口做受限判断。
+
+对应代码和 prompt：
+
+- `src/skill_creator_agent/orchestration/router.py`
+- `src/skill_creator_agent/prompts/unified_router.md`
+
+## 为什么先写到 `.tmp/.../drafts`，不是直接写到 `skills/`
+
+这是当前设计里刻意保留的一层安全机制。
+
+`BuildRunAgent` 写入的是 draft skill，而不是正式 skill：
+
+- draft 会创建在当前 session 的输出目录下
+- draft 可以被动态加载、执行、反复修改
+- 用户确认满意后，才会 promote 到真正的 `skills/`
+
+这样做的好处是：
+
+- 草稿不会污染正式技能目录
+- build revision 可以安全重试
+- 旧版本 draft 可以归档
+- 用户看到真实执行结果后，如果逻辑不满意，可以回退到方案阶段继续修改
+
+对应代码：
+
+- `src/skill_creator_agent/orchestration/drafts.py`
+
+## 上下文交接方式
+
+为了适配 Ferry 的一问一答限制，当前实现不是把所有上下文都依赖在 `DataAgent` 的历史消息里，而是显式维护一份 `SessionState`。
+
+`SessionState` 里会保留：
+
+- 当前 workflow stage
+- 当前 active turn stage
+- 上一次问题类型
+- 用户目标
+- reference 摘要
+- plan 版本历史
+- build 版本历史
+- 当前 draft 标识
+
+大文本内容不会全都塞进状态对象，而是写入当前会话下的 artifact 目录，再通过引用读取。
+
+这使得：
+
+- 多轮状态能跨阶段稳定承接
+- 某个阶段失败时可以从结构化状态恢复
+- 回退到 plan revision 时不会丢掉前一版方案或 build 结果
+
+核心实现：
+
+- `src/skill_creator_agent/data_agent_bridge.py`
+- `src/skill_creator_agent/orchestration/models.py`
+
+## Prompt Surface
+
+当前真正参与新架构的 prompt 主要有：
+
+- `src/skill_creator_agent/prompts/stage_context_existing_skill.md`
+- `src/skill_creator_agent/prompts/stage_context_plan_agent.md`
+- `src/skill_creator_agent/prompts/stage_context_build_run.md`
+- `src/skill_creator_agent/prompts/unified_router.md`
+
+另外，runtime 层仍然保留了一部分基础 prompt，用于 skill/runtime 通用行为：
+
+- `src/skill_creator_agent/prompts/system_prompt_base.md`
+- `src/skill_creator_agent/prompts/system_prompt_direct_query.md`
+- `src/skill_creator_agent/prompts/skill_creation_workflow.md`
+- `src/skill_creator_agent/prompts/no_skill_fallback.md`
+- `src/skill_creator_agent/prompts/no_skill_fallback_direct.md`
+- `src/skill_creator_agent/prompts/skill_execution_reminder.md`
+- `src/skill_creator_agent/prompts/graph_connector_python_contract.md`
+
+## 目录结构
+
+```text
+.
+├── config.yaml.example
+├── skills/
+├── src/
+│   ├── connectors/
+│   └── skill_creator_agent/
+│       ├── orchestration/
+│       │   ├── stages/
+│       │   ├── drafts.py
+│       │   ├── ferry.py
+│       │   ├── models.py
+│       │   ├── router.py
+│       │   └── stage_runner.py
+│       ├── prompts/
+│       ├── cli.py
+│       ├── data_agent_bridge.py
+│       ├── ferry_config.py
+│       ├── ferry_tools.py
+│       └── runtime.py
+├── tests/
+└── logs/
+```
+
+## 快速开始
+
+### 1. 环境准备
+
+要求：
+
+- Python 3.11+
+- 当前 Python 环境已经安装 Ferry，或者你本地有一个可用的 Ferry 源码目录
+
+Ferry 的解析顺序是：
+
+1. 当前 Python 环境如果已经可以直接导入 `ferry`，就直接使用当前环境
+2. 否则读取 `config.yaml` 中的 `BOOTSTRAP.ferry_root`
+
+例如：
+
+```yaml
+BOOTSTRAP:
+  ferry_root: "../ferry"
+```
+
+### 2. 准备配置
+
+本项目提交中只保留 `config.yaml.example`，本地运行时请复制成 `config.yaml`：
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+然后在 `config.yaml` 中填写你自己的模型配置。当前配置结构兼容 OpenAI 风格接口，例如：
+
+- `provider`
+- `model`
+- `api_key`
+- `base_url`
+
+同时还可以配置：
+
+- `SKILL_CREATOR.skills_root`
+- `SKILL_CREATOR.graph_enabled`
+- `SKILL_CREATOR.graph_base_url`
+- `SKILL_CREATOR.graph_timeout`
+
+### 3. 启动 CLI
+
+默认推荐直接通过 Python 运行仓库内脚本：
+
+```bash
+python scripts/skill_creator_chat.py
+```
+
+如果你当前使用的 Python 环境已经安装了本项目，也可以直接运行模块入口：
+
+```bash
+python -m skill_creator_agent
+```
+
+常用显式参数示例：
+
+```bash
+python scripts/skill_creator_chat.py \
+  --skills-root /Users/weichong/Documents/new_working_area/skill-creator-agent/skills \
+  --graph-base-url http://127.0.0.1:8000
+```
+
+也可以用 `--turn` 做非交互验证：
+
+```bash
+python scripts/skill_creator_chat.py \
+  --turn "帮我分析深圳蛇口支行的本外币存款日均余额" \
+  --turn "创建" \
+  --turn "有，位置在/abs/path/to/reference.md"
+```
+
+### 4. CLI 内置命令
+
+- `/skills`
+- `/config`
+- `/stage`
+- `/reset`
+- `/help`
+- `/quit`
+
+## 一个典型工作流
+
+以“帮我分析深圳蛇口支行的本外币存款日均余额”为例，典型链路如下：
+
+1. `ExistingSkillAgent` 判断当前 `skills/` 中没有可直接复用的 skill
+2. 系统询问是否创建新 skill
+3. 用户确认后，系统询问是否有参考资料
+4. `PlanAgent` 读取文档并生成自然语言方案
+5. 用户批准方案
+6. `BuildRunAgent` 在 draft 目录下创建 skill、执行、修复
+7. 系统向用户展示构建与执行结果，以及原始问题答案
+8. 用户确认满意后，draft 被发布到正式 `skills/`
+
+## 测试
+
+运行全部测试：
+
+```bash
+python -m pytest -q
+```
+
+如果只想跑核心多轮编排测试：
+
+```bash
+python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
+```
+
+## 当前边界
+
+当前系统的几个重要边界是：
+
+- Ferry 仍然是一问一答执行模型，多轮承接由本项目自己维护
+- draft skill 先执行再发布，正式 `skills/` 不直接承担试错过程
+- `PlanAgent` 输出的是面向用户确认的业务逻辑文档，不是内部实现规格书
+- `BuildRunAgent` 负责技术修复闭环，但当用户认为业务逻辑不对时，会回退到方案修订，而不是继续在错误实现上硬改
+
+这也是当前这套设计和原始 `workflow-svc` 最大的差别。

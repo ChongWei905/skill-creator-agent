@@ -7,6 +7,7 @@ from typing import Any
 
 from skill_creator_agent.data_agent_bridge import (
     DEFAULT_VERIFICATION_CONFIG,
+    DEFAULT_VERIFICATION_CONFIG_EXAMPLE,
     build_data_agent_session,
     extract_last_message_text,
 )
@@ -14,13 +15,17 @@ from skill_creator_agent.paths import project_path
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the interactive CLI argument parser."""
     parser = argparse.ArgumentParser(
         description="Interactive multi-turn CLI for skill_creator via Ferry DataAgent.",
     )
     parser.add_argument(
         "--config",
         default=str(DEFAULT_VERIFICATION_CONFIG),
-        help="Base skill_creator config YAML.",
+        help=(
+            "Base skill_creator config YAML. Prefers project config.yaml and "
+            f"falls back to {DEFAULT_VERIFICATION_CONFIG_EXAMPLE.name} when config.yaml is missing."
+        ),
     )
     parser.add_argument(
         "--skills-root",
@@ -78,10 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the multi-turn skill creator shell."""
     return build_parser().parse_args(argv)
 
 
 async def async_main(argv: list[str] | None = None) -> int:
+    """Run the async CLI entrypoint."""
     args = parse_args(argv)
     session = build_data_agent_session(
         args.config,
@@ -155,6 +162,7 @@ async def async_main(argv: list[str] | None = None) -> int:
 
 
 def main() -> int:
+    """Run the synchronous CLI entrypoint."""
     return asyncio.run(async_main())
 
 

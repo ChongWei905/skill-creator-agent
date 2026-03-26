@@ -25,6 +25,7 @@ class SkillCreatorSettings:
 
 
 def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> SkillCreatorSettings:
+    """Resolve runtime settings from defaults, config, and environment overrides."""
     section = _extract_section(config)
     graph_enabled = _as_bool(section.get("graph_enabled"), default=False)
     graph_base_url = str(section.get("graph_base_url") or DEFAULT_GRAPH_BASE_URL).rstrip("/")

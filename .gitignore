@@ -1,5 +1,6 @@
 .DS_Store
 .env
+config.yaml
 .pytest_cache/
 .tmp/
 .venv/
@@ -7,3 +8,5 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+docs/
+texts/

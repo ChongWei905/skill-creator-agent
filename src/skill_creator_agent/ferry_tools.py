@@ -4,6 +4,14 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from skill_creator_agent.runtime import SkillCreatorRuntime
+from skill_creator_agent.tool_argument_normalizer import (
+    normalize_bool,
+    normalize_cli_arguments,
+    normalize_int,
+    normalize_mapping_argument,
+    normalize_nested_list,
+    normalize_string_list,
+)
 
 _ACTIVE_RUNTIME: SkillCreatorRuntime | None = None
 
@@ -54,17 +62,21 @@ def read_script_source(skill_name: str, script_name: str) -> str:
 def execute_skill_script(
     skill_name: str,
     script_name: str,
-    arguments: list[str] | None = None,
+    arguments: list[str] | str | None = None,
     cwd: str | None = None,
     timeout: int = 300,
 ) -> dict[str, Any]:
-    """Execute a script from a skill and return exit code, stdout, and stderr."""
+    """Execute a script from a skill and return exit code, stdout, and stderr.
+
+    Pass `arguments` as a native JSON array such as `["--branch_name", "蛇口支行"]`.
+    Do not pass a quoted JSON string like `'["--branch_name", "蛇口支行"]'`.
+    """
     return get_runtime_tools().execute_skill_script(
         skill_name,
         script_name,
-        args=arguments,
+        args=normalize_cli_arguments(arguments),
         cwd=Path(cwd).expanduser().resolve() if cwd else None,
-        timeout=timeout,
+        timeout=normalize_int(timeout, field_name="timeout") or 300,
     )
 
 
@@ -130,21 +142,21 @@ def graph_get_entity_schema(entity_type: str) -> dict[str, Any]:
 def graph_query_examples(
     entity_type: str,
     limit: int = 5,
-    filter_dict: dict[str, Any] | None = None,
+    filter_dict: dict[str, Any] | str | None = None,
 ) -> list[dict[str, Any]]:
     """Query sample graph instances for a given entity type."""
     return get_runtime_tools().graph_query_examples(
         entity_type,
-        limit=limit,
-        filter_dict=filter_dict,
+        limit=normalize_int(limit, field_name="limit") or 5,
+        filter_dict=normalize_mapping_argument(filter_dict, field_name="filter_dict"),
     )
 
 
 def graph_property_filter(
     element_class: str,
     element_type: str = "NODE",
-    filter_dict: dict[str, Any] | None = None,
-    get_all_properties: bool = False,
+    filter_dict: dict[str, Any] | str | None = None,
+    get_all_properties: bool | str = False,
 ) -> list[dict[str, Any]]:
     """Filter graph elements by property conditions.
 
@@ -158,12 +170,13 @@ def graph_property_filter(
     Do not pass raw values like `\"深圳\"` or `\"是\"`.
     Do not put `AND` inside one expression; use separate properties in `filter_dict` instead.
     For string literals, include single quotes explicitly.
+    Pass `filter_dict` as a native JSON object, not as a quoted JSON string.
     """
     return get_runtime_tools().graph_property_filter(
         element_class,
         element_type,
-        filter_dict,
-        get_all_properties=get_all_properties,
+        normalize_mapping_argument(filter_dict, field_name="filter_dict"),
+        get_all_properties=normalize_bool(get_all_properties, field_name="get_all_properties"),
     )
 
 
@@ -182,27 +195,27 @@ def graph_property_info(
 
 def graph_hop_search(
     uuid: str,
-    hop_num: int,
-    accurate_flag: bool = False,
+    hop_num: int | str,
+    accurate_flag: bool | str = False,
 ) -> list[dict[str, Any]]:
     """Run a hop search from a starting graph node."""
     return get_runtime_tools().graph_hop_search(
         uuid,
-        hop_num,
-        accurate_flag=accurate_flag,
+        normalize_int(hop_num, field_name="hop_num") or 0,
+        accurate_flag=normalize_bool(accurate_flag, field_name="accurate_flag"),
     )
 
 
 def graph_count_search(
     element_class: str,
     element_type: str = "NODE",
-    filter_dict: dict[str, Any] | None = None,
+    filter_dict: dict[str, Any] | str | None = None,
 ) -> int:
     """Count graph elements that satisfy a filter."""
     return get_runtime_tools().graph_count_search(
         element_class,
         element_type,
-        filter_dict,
+        normalize_mapping_argument(filter_dict, field_name="filter_dict"),
     )
 
 
@@ -211,7 +224,7 @@ def graph_aggregate_search(
     element_type: str = "NODE",
     target_property: str | None = None,
     agg_func: str | None = None,
-    filter_dict: dict[str, Any] | None = None,
+    filter_dict: dict[str, Any] | str | None = None,
 ) -> Any:
     """Aggregate a graph property using COUNT/SUM/AVG/MIN/MAX."""
     return get_runtime_tools().graph_aggregate_search(
@@ -219,37 +232,37 @@ def graph_aggregate_search(
         element_type,
         target_property,
         agg_func,
-        filter_dict,
+        normalize_mapping_argument(filter_dict, field_name="filter_dict"),
     )
 
 
 def graph_sorted_search(
     element_class: str,
     element_type: str = "NODE",
-    filter_dict: dict[str, Any] | None = None,
-    return_properties: list[str] | None = None,
+    filter_dict: dict[str, Any] | str | None = None,
+    return_properties: list[str] | str | None = None,
     sort_by: str | None = None,
-    ascending: bool = True,
-    limit: int | None = None,
+    ascending: bool | str = True,
+    limit: int | str | None = None,
 ) -> list[dict[str, Any]]:
     """Return graph query results with server-side sorting."""
     return get_runtime_tools().graph_sorted_search(
         element_class,
         element_type,
-        filter_dict=filter_dict,
-        return_properties=return_properties,
+        filter_dict=normalize_mapping_argument(filter_dict, field_name="filter_dict"),
+        return_properties=normalize_string_list(return_properties, field_name="return_properties"),
         sort_by=sort_by,
-        ascending=ascending,
-        limit=limit,
+        ascending=normalize_bool(ascending, field_name="ascending"),
+        limit=normalize_int(limit, field_name="limit"),
     )
 
 
 def graph_pattern_search(
-    path_pattern: list[list[Any]],
-    return_vars: list[str] | None = None,
+    path_pattern: list[list[Any]] | str,
+    return_vars: list[str] | str | None = None,
 ) -> list[dict[str, Any]]:
     """Run a pattern search against the graph service."""
     return get_runtime_tools().graph_pattern_search(
-        path_pattern,
-        return_vars=return_vars,
+        normalize_nested_list(path_pattern, field_name="path_pattern"),
+        return_vars=normalize_string_list(return_vars, field_name="return_vars"),
     )

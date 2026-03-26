@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import skill_creator_agent.ferry_tools as ferry_tools_module
 from skill_creator_agent.data_agent_bridge import _reset_ferry_singletons
 from skill_creator_agent.ferry_config import DEFAULT_GRAPH_TOOLS, DEFAULT_RUNTIME_TOOLS
-from skill_creator_agent.ferry_tools import configure_runtime_tools, reset_runtime_tools
+from skill_creator_agent.ferry_tools import configure_runtime_tools, execute_skill_script, graph_property_filter, reset_runtime_tools
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
 
@@ -111,3 +112,104 @@ def test_graph_tools_register_with_ferry_tool_manager(tmp_path):
     finally:
         _reset_ferry_singletons()
         reset_runtime_tools()
+
+
+def test_execute_skill_script_normalizes_stringified_argument_array(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubRuntime:
+        def execute_skill_script(self, skill_name, script_name, args=None, cwd=None, timeout=300):
+            captured["skill_name"] = skill_name
+            captured["script_name"] = script_name
+            captured["args"] = args
+            captured["cwd"] = cwd
+            captured["timeout"] = timeout
+            return {"ok": True}
+
+    monkeypatch.setattr(ferry_tools_module, "get_runtime_tools", lambda: StubRuntime())
+
+    result = execute_skill_script(
+        "branch-deposit-analysis",
+        "branch_deposit_analysis.py",
+        arguments='["--branch_name", "蛇口支行"]',
+        timeout="60",
+    )
+
+    assert result == {"ok": True}
+    assert captured["args"] == ["--branch_name", "蛇口支行"]
+    assert captured["timeout"] == 60
+
+
+def test_execute_skill_script_normalizes_python_literal_argument_array(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubRuntime:
+        def execute_skill_script(self, skill_name, script_name, args=None, cwd=None, timeout=300):
+            captured["args"] = args
+            return {"ok": True}
+
+    monkeypatch.setattr(ferry_tools_module, "get_runtime_tools", lambda: StubRuntime())
+
+    execute_skill_script(
+        "branch-deposit-analysis",
+        "branch_deposit_analysis.py",
+        arguments="['--branch_name', '蛇口支行']",
+    )
+
+    assert captured["args"] == ["--branch_name", "蛇口支行"]
+
+
+def test_graph_property_filter_normalizes_stringified_filter_dict(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubRuntime:
+        def graph_property_filter(
+            self,
+            element_class,
+            element_type="NODE",
+            filter_dict=None,
+            *,
+            get_all_properties=False,
+        ):
+            captured["element_class"] = element_class
+            captured["element_type"] = element_type
+            captured["filter_dict"] = filter_dict
+            captured["get_all_properties"] = get_all_properties
+            return [{"ok": True}]
+
+    monkeypatch.setattr(ferry_tools_module, "get_runtime_tools", lambda: StubRuntime())
+
+    result = graph_property_filter(
+        "Organ",
+        filter_dict='{"name": "CONTAINS \\"蛇口\\""}',
+        get_all_properties="true",
+    )
+
+    assert result == [{"ok": True}]
+    assert captured["filter_dict"] == {"name": 'CONTAINS "蛇口"'}
+    assert captured["get_all_properties"] is True
+
+
+def test_graph_property_filter_normalizes_python_literal_filter_dict(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class StubRuntime:
+        def graph_property_filter(
+            self,
+            element_class,
+            element_type="NODE",
+            filter_dict=None,
+            *,
+            get_all_properties=False,
+        ):
+            captured["filter_dict"] = filter_dict
+            return [{"ok": True}]
+
+    monkeypatch.setattr(ferry_tools_module, "get_runtime_tools", lambda: StubRuntime())
+
+    graph_property_filter(
+        "Organ",
+        filter_dict="{'name': \"CONTAINS '蛇口'\"}",
+    )
+
+    assert captured["filter_dict"] == {"name": "CONTAINS '蛇口'"}

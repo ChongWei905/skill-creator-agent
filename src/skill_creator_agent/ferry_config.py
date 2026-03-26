@@ -140,6 +140,7 @@ def build_ferry_config(
     model_params_overrides: Mapping[str, Any] | None = None,
     include_skills: bool = True,
 ) -> dict[str, Any]:
+    """Build the effective Ferry configuration for a single stage execution."""
     user_config = dict(config or {})
     base_config = _build_default_ferry_config(
         runtime=runtime,
@@ -171,6 +172,7 @@ def materialize_ferry_config(
     model_params_overrides: Mapping[str, Any] | None = None,
     include_skills: bool = True,
 ) -> Path:
+    """Render the effective Ferry configuration to a YAML file on disk."""
     target = Path(output_path).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     rendered = build_ferry_config(
@@ -204,6 +206,7 @@ def _build_default_ferry_config(
     model_params = {
         "model": "deepseek-chat",
         "max_tokens": DEFAULT_CHAT_MAX_TOKENS,
+        "max_retries": 3,
     }
     if model_params_overrides:
         model_params.update(dict(model_params_overrides))

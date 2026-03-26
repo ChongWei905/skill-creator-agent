@@ -1,49 +1,47 @@
 from __future__ import annotations
 
-from ferry.core.managers.llm_manager import llm_manager
-from ferry.core.cbb.base_agent import BaseAgent
-from ferry.core.flex.agent import FlexAgent
-from ferry.actions.tools import tool_manager
-from ferry.interface.sdk.agent import DataAgent
+import asyncio
+from pathlib import Path
+
+import skill_creator_agent.data_agent_bridge as bridge_module
 
 from skill_creator_agent.cli import parse_args
 from skill_creator_agent.data_agent_bridge import (
+    DEFAULT_VERIFICATION_CONFIG_EXAMPLE,
     DataAgentSession,
+    _augment_build_review_message,
+    _augment_build_response_with_final_result,
     _extract_reference_paths,
-    _extract_planned_skill_slug,
+    _extract_markdown_section,
     _load_reference_sources_from_query,
-    _ask_references_policy,
-    _create_skill_policy,
-    _execute_skill_policy,
-    _inspect_schema_policy,
-    _propose_plan_policy,
-    _write_skill_script_policy,
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
+    resolve_default_verification_config_path,
 )
-from skill_creator_agent.runtime import SkillCreatorRuntime
-from skill_creator_agent.paths import package_path
+from skill_creator_agent.orchestration import (
+    AWAIT_BUILD_REVIEW,
+    AWAIT_CREATE_CONFIRMATION,
+    AWAIT_PLAN_APPROVAL,
+    AWAIT_REFERENCES,
+    BUILDING_AND_RUNNING,
+    DONE,
+)
+from skill_creator_agent.orchestration.drafts import DraftSkillContext
+from skill_creator_agent.orchestration.models import BuildVersion, RouterDecision, StageResult
+from skill_creator_agent.orchestration.router import UnifiedRouter
+from skill_creator_agent.orchestration.stages.plan import _select_skill_slug, _slugify
 
 
 async def _async_value(value):
     return value
 
 
-def test_load_config_dict_reads_yaml_file():
-    config = load_config_dict(package_path("skill_creator_debug.yaml"))
-
-    assert config["AGENT_CONFIG"]["agent_type"] == "skill_creator"
-    assert config["SKILL_CREATOR"]["graph_enabled"] is True
-
-
-def test_build_data_agent_session_materializes_runtime_bridge(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-
-    session = build_data_agent_session(
+def _make_session(tmp_path: Path, *, skills_root: str | Path | None = None) -> DataAgentSession:
+    return build_data_agent_session(
         {
             "SKILL_CREATOR": {
-                "skills_root": "src/skill_creator_agent/fixtures/minimal_skills",
+                "skills_root": str(skills_root or tmp_path / "skills"),
                 "graph_enabled": False,
             }
         },
@@ -52,14 +50,52 @@ def test_build_data_agent_session_materializes_runtime_bridge(monkeypatch, tmp_p
         materialized_config_path=tmp_path / "rendered.yaml",
     )
 
+
+def test_load_config_dict_reads_yaml_file():
+    config = load_config_dict(DEFAULT_VERIFICATION_CONFIG_EXAMPLE)
+
+    assert config["AGENT_CONFIG"]["agent_type"] == "skill_creator"
+    assert config["MODEL"]
+
+
+def test_load_config_dict_merges_mapping_over_default_config():
+    config = load_config_dict(
+        {
+            "SKILL_CREATOR": {
+                "graph_enabled": False,
+            }
+        }
+    )
+
+    assert config["MODEL"]["skill_creator_chat"]["params"]["api_key"]
+    assert config["SKILL_CREATOR"]["graph_enabled"] is False
+
+
+def test_resolve_default_verification_config_path_falls_back_to_example(monkeypatch, tmp_path):
+    missing_config = tmp_path / "config.yaml"
+    example_config = tmp_path / "config.yaml.example"
+    example_config.write_text("MODEL: {}\n", encoding="utf-8")
+
+    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG", missing_config)
+    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG_EXAMPLE", example_config)
+
+    resolved = resolve_default_verification_config_path()
+
+    assert resolved == example_config
+
+
+def test_build_data_agent_session_materializes_runtime_bridge(tmp_path):
+    session = _make_session(
+        tmp_path,
+        skills_root="src/skill_creator_agent/fixtures/minimal_skills",
+    )
+
     chat_agent = session.data_agent.build_agent_graph("chat")
 
-    assert isinstance(session.data_agent, DataAgent)
     assert session.ferry_config_path.exists()
     assert session.runtime.list_skills()[0]["name"] == "skill-creator-smoke"
     assert session.output_path == (tmp_path / "outputs" / session.session_id).resolve()
-    assert isinstance(chat_agent, BaseAgent)
-    assert isinstance(chat_agent, FlexAgent)
+    assert chat_agent is not None
 
 
 def test_extract_last_message_text_handles_dict_and_fallback():
@@ -73,171 +109,6 @@ def test_cli_parse_args_defaults():
     assert args.graph_base_url == "http://127.0.0.1:8000"
     assert args.turn == []
     assert args.disable_graph is False
-
-
-def test_data_agent_session_builds_reference_only_stage_config(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-1",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_create_confirmation",
-    )
-
-    config = session.preview_turn_ferry_config("创建吧", policy=_ask_references_policy())
-
-    assert "Current stage: ask_references" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Ask only for reference documentation" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Do not ask whether the skill should be created again." not in config["SCENARIO"]["chat"]["instructions"]
-    assert config["TOOLS"]["local_functions"] == []
-
-
-def test_discovery_stage_does_not_expose_execute_tool(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-0",
-        output_root=tmp_path / "outputs",
-        workflow_stage="idle",
-    )
-
-    config = session.preview_turn_ferry_config("我想查看当前银行用户中哪些是有风险的用户")
-    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
-    instructions = config["SCENARIO"]["chat"]["instructions"]
-
-    assert "list_available_skills" in tool_names
-    assert "execute_skill_script" in tool_names
-    assert "execute it in this same turn" in instructions
-
-
-def test_discovery_stage_with_no_registered_skills_exposes_no_tools(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path)}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-empty",
-        output_root=tmp_path / "outputs",
-        workflow_stage="idle",
-    )
-
-    config = session.preview_turn_ferry_config("帮我查看数据库中有风险的用户")
-
-    assert "Current stage: discover_existing_skill" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Available skill metadata:" in config["SCENARIO"]["chat"]["instructions"]
-    assert config["TOOLS"]["local_functions"] == []
-
-
-def test_stage_prompt_keeps_original_user_goal_across_short_replies(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-goal",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    config = session.preview_turn_ferry_config("没有")
-
-    assert "Original user goal: 帮我查看数据库中有风险的用户" in config["SCENARIO"]["chat"]["instructions"]
-
-
-def test_idle_turn_explicitly_sets_user_goal(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-goal-idle",
-        output_root=tmp_path / "outputs",
-        workflow_stage="idle",
-        user_goal="旧目标",
-    )
-
-    async def fake_run_stage(policy, query, *, clear_history):
-        return {"messages": [type("Msg", (), {"content": "需要先创建技能吗？"})()]}
-
-    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
-    monkeypatch.setattr(session, "_route_discovery_transition", lambda assistant_text: _async_value("awaiting_create_confirmation"))
-
-    import asyncio
-
-    asyncio.run(session.ask("新的用户目标"))
-
-    assert session.user_goal == "新的用户目标"
-
-
-def test_confirmation_turn_does_not_overwrite_existing_user_goal(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-goal-confirm",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_create_confirmation",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    async def fake_route(query: str) -> str:
-        return "ask_references"
-
-    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
-
-    import asyncio
-
-    asyncio.run(session.ask("创建"))
-
-    assert session.user_goal == "帮我查看数据库中有风险的用户"
-
-
-def test_extract_planned_skill_slug_prefers_explicit_identifier_over_numeric_range():
-    plan = """
-### 📁 技能文件规划
-- **技能标识**：`daily-company-deposit-analysis`（仅小写字母、数字、连字符）
-- 需要分析近 3-5 个周期的趋势。
-"""
-
-    assert _extract_planned_skill_slug(plan) == "daily-company-deposit-analysis"
-
-
-def test_data_agent_session_builds_plan_stage_with_graph_tools_only(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-2",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-    )
-
-    config = session.preview_turn_ferry_config("没有文档支撑")
-    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
-
-    assert "Current stage: inspect_schema" in config["SCENARIO"]["chat"]["instructions"]
-    assert "Return only a concise internal handoff summary" in config["SCENARIO"]["chat"]["instructions"]
-    assert "graph_get_object_types" in tool_names
-    assert "create_skill_scaffold" not in tool_names
-    assert "write_file" not in tool_names
 
 
 def test_extract_reference_paths_finds_existing_file():
@@ -268,367 +139,16 @@ def test_load_reference_sources_from_query_reads_file_content():
     assert "本外币公司存款日均余额" in sources[0]["content"]
 
 
-def test_build_reference_summary_from_router_result_preserves_full_reference_source_content(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-reference-full",
-        output_root=tmp_path / "outputs",
-        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
-    )
+def test_preview_turn_ferry_config_for_empty_discovery_has_no_local_tools(tmp_path):
+    session = _make_session(tmp_path)
 
-    import asyncio
+    config = session.preview_turn_ferry_config("帮我查风险客户")
 
-    summary = session._build_reference_summary_from_router_result(
-        {
-            "decision": "use_references",
-            "document_paths": [
-                "/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
-            ],
-            "inline_reference_text": "",
-        }
-    )
-
-    assert "## Source: /Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md" in summary
-    assert "一、本外币公司存款日均余额" in summary
-    assert "（四）分析计算方法" in summary
+    assert "Current stage: existing_skill" in config["SCENARIO"]["chat"]["instructions"]
+    assert config["TOOLS"]["local_functions"] == []
 
 
-def test_reference_answer_turn_asks_again_when_router_needs_more_info(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-reference-ask-again",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
-    )
-
-    async def fake_route_reference_response(query: str) -> dict[str, object]:
-        return {"decision": "ask_again", "document_paths": [], "inline_reference_text": ""}
-
-    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
-
-    import asyncio
-
-    result = asyncio.run(session.ask("我有文档"))
-    text = extract_last_message_text(result)
-
-    assert "请提供可读取的参考文档路径" in text
-    assert session.workflow_stage == "awaiting_reference_answer"
-    assert session.active_turn_stage == "ask_references"
-
-
-def test_reference_answer_turn_continues_after_valid_router_result(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-reference-valid",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
-    )
-
-    responses = [
-        {"messages": [type("Msg", (), {"content": "SCHEMA SUMMARY:\n- relevant entities: Organ"})()]},
-        {"messages": [type("Msg", (), {"content": "这是执行方案，请审批。"})()]},
-    ]
-
-    async def fake_route_reference_response(query: str) -> dict[str, object]:
-        return {
-            "decision": "use_references",
-            "document_paths": ["/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"],
-            "inline_reference_text": "",
-        }
-
-    async def fake_run_stage(policy, query, *, clear_history):
-        return responses.pop(0)
-
-    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
-    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
-    monkeypatch.setattr(session.runtime, "graph_get_object_types", lambda: ["Organ"])
-    monkeypatch.setattr(
-        session.runtime,
-        "graph_get_entity_schema",
-        lambda entity_type: {"entity_type": entity_type, "sample_properties": {"name": "深圳蛇口支行", "uuid": "Organ_1"}},
-    )
-    monkeypatch.setattr(session.runtime, "graph_query_examples", lambda entity_type, limit=1: [{"name": "深圳蛇口支行", "uuid": "Organ_1"}])
-
-    import asyncio
-
-    result = asyncio.run(session.ask("有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"))
-
-    assert "执行方案" in extract_last_message_text(result)
-    assert "## Source: /Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md" in session.reference_summary
-    assert session.workflow_stage == "awaiting_plan_approval"
-
-
-def test_data_agent_session_builds_create_stage_without_reasking_for_approval(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-create",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_plan_approval",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    config = session.preview_turn_ferry_config("是，请创建技能", policy=_create_skill_policy())
-    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
-    instructions = config["SCENARIO"]["chat"]["instructions"]
-
-    assert "Current stage: create_skill" in instructions
-    assert "Do not ask for approval again." in instructions
-    assert "Structured schema handoff:" in instructions
-    assert "Original Step 5 template excerpt:" in instructions
-    assert "### **Step 5: Create Complete Skill Package**" in instructions
-    assert "Start with create_skill_scaffold using a slugified `skill_name`" in instructions
-    assert "Do not put large bodies, SQL files, config files, or script content into the initial create_skill_scaffold call." in instructions
-    assert "from connectors import GraphConnector" in instructions
-    assert "GRAPH_DB_BASE_URL" in instructions
-    assert "GRAPH_DB_TIMEOUT" in instructions
-    assert "GraphConnector(base_url=base_url, timeout=timeout)" in instructions
-    assert "When `get_all_properties=True`, GraphConnector returns a list of flat property dictionaries." in instructions
-    assert "Do not use `n.name`, `n.uuid`, `n.properties`, or nested `properties` access" in instructions
-    assert '{"customer_description": "CONTAINS ' in instructions
-    assert 'Do not use nested filter objects like' in instructions
-    assert "Do not hardcode graph URLs, sqlite paths, local database file paths" in instructions
-    assert "The frontmatter `name` must stay equal to the directory slug" in instructions
-    assert "Do not add a separate `slug` field" in instructions
-    assert "create_skill_scaffold" in tool_names
-    assert "reload_skill" in tool_names
-    assert "write_file" in tool_names
-    assert "graph_get_object_types" not in tool_names
-
-
-def test_write_skill_script_stage_uses_minimal_context_and_no_skill_registry(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-write-script",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_plan_approval",
-        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
-        plan_summary="这是一个很长的执行计划摘要",
-        structured_schema_handoff="STRUCTURED SCHEMA HANDOFF:\n- entity: Organ\n  fields: name, organ_code",
-        created_skill_name="company-deposit-daily-balance-analysis",
-        created_skill_dir="/tmp/company-deposit-daily-balance-analysis",
-        created_skill_md_path="/tmp/company-deposit-daily-balance-analysis/SKILL.md",
-        created_skill_scripts_dir="/tmp/company-deposit-daily-balance-analysis/scripts",
-        created_skill_primary_script_path="/tmp/company-deposit-daily-balance-analysis/scripts/analyze_company_deposit.py",
-    )
-
-    config = session.preview_turn_ferry_config("", policy=_write_skill_script_policy())
-    instructions = config["SCENARIO"]["chat"]["instructions"]
-
-    assert "Current stage: write_skill_script" in instructions
-    assert "Approved plan summary:" not in instructions
-    assert "Original Step 5 template excerpt:" not in instructions
-    assert "Structured schema handoff:" in instructions
-    assert "SKILL.md path: /tmp/company-deposit-daily-balance-analysis/SKILL.md" in instructions
-    assert "Scripts directory: /tmp/company-deposit-daily-balance-analysis/scripts" in instructions
-    assert (
-        "Primary script path: /tmp/company-deposit-daily-balance-analysis/scripts/analyze_company_deposit.py"
-        in instructions
-    )
-    assert config["MODEL"]["skill_creator_chat"]["params"]["max_tokens"] == 2560
-    assert config["TOOLS"]["skills"] == []
-
-
-def test_inspect_schema_stage_always_advances_to_plan_approval(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-3",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-    )
-
-    import asyncio
-
-    next_stage = asyncio.run(
-        session._determine_next_workflow_stage(
-            _inspect_schema_policy(graph_enabled=True),
-            "任何 assistant 文本都不应该影响 inspect_schema 的阶段推进。",
-        )
-    )
-
-    assert next_stage == "awaiting_plan_approval"
-
-
-def test_propose_plan_stage_prefers_graph_connector_python_plan(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-plan",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_plan_approval",
-        user_goal="帮我查看数据库中有风险的用户",
-        reference_summary="没有参考文档",
-        schema_summary="SCHEMA SUMMARY: Person, customer_description",
-    )
-
-    config = session._build_turn_ferry_config(_propose_plan_policy())
-    instructions = config["SCENARIO"]["chat"]["instructions"]
-
-    assert "Propose a filesystem-safe skill slug" in instructions
-    assert "from connectors import GraphConnector" in instructions
-    assert "Do not propose sqlite files, local database configs" in instructions
-    assert "prefer a small Python execution script plus SKILL.md" in instructions
-
-
-def test_handle_reference_answer_turn_compacts_schema_then_plan(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config(
-            {"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills", "graph_enabled": True}}
-        ),
-        source_config={"SKILL_CREATOR": {"graph_enabled": True}},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-4",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_reference_answer",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    responses = [
-        {"messages": [type("Msg", (), {"content": "SCHEMA SUMMARY:\n- relevant entities: Person\n- key properties: customer_description"})()]},
-        {"messages": [type("Msg", (), {"content": "这是执行方案，请审批。"})()]},
-    ]
-
-    monkeypatch.setattr(session.runtime, "graph_get_object_types", lambda: ["Person"])
-    monkeypatch.setattr(
-        session.runtime,
-        "graph_get_entity_schema",
-        lambda entity_type: {
-            "entity_type": entity_type,
-            "sample_properties": {
-                "name": "测试客户",
-                "party_id": "P001",
-                "customer_description": "潜在风险客户标识:是",
-                "uuid": "Person_001",
-            },
-        },
-    )
-    monkeypatch.setattr(
-        session.runtime,
-        "graph_query_examples",
-        lambda entity_type, limit=1: [
-            {
-                "name": "测试客户",
-                "party_id": "P001",
-                "customer_description": "潜在风险客户标识:是",
-                "uuid": "Person_001",
-            }
-        ],
-    )
-
-    async def fake_run_stage(policy, query, *, clear_history):
-        return responses.pop(0)
-
-    async def fake_route_reference_response(query: str) -> dict[str, object]:
-        return {"decision": "no_references", "document_paths": [], "inline_reference_text": ""}
-
-    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
-    monkeypatch.setattr(session, "_route_reference_response", fake_route_reference_response)
-
-    import asyncio
-
-    result = asyncio.run(session.ask("没有"))
-
-    assert "执行方案" in extract_last_message_text(result)
-    assert "Person" in session.schema_summary
-    assert "STRUCTURED SCHEMA HANDOFF:" in session.structured_schema_handoff
-    assert "flat result shape" in session.structured_schema_handoff
-    assert "fields: customer_description, name, party_id, uuid" in session.structured_schema_handoff
-    assert session.workflow_stage == "awaiting_plan_approval"
-    assert session.active_turn_stage == "propose_plan"
-
-
-def test_empty_discovery_stage_short_circuits_to_direct_create_question(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path)}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-empty-short",
-        output_root=tmp_path / "outputs",
-        workflow_stage="idle",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    import asyncio
-
-    result = asyncio.run(session.ask("帮我查看数据库中有风险的用户"))
-    text = extract_last_message_text(result)
-
-    assert "创建一个新的技能" in text
-    assert "帮我查看数据库中有风险的用户" in text
-    assert session.workflow_stage == "awaiting_create_confirmation"
-
-
-def test_ask_references_stage_short_circuits_to_single_question(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-doc-short",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_create_confirmation",
-        user_goal="帮我查看数据库中有风险的用户",
-    )
-
-    async def fake_route(query: str):
-        return "ask_references"
-
-    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
-
-    import asyncio
-
-    result = asyncio.run(session.ask("创建"))
-    text = extract_last_message_text(result)
-
-    assert "是否有可参考的资料" in text
-    assert "如果没有，请直接回复“没有”" in text
-    assert session.workflow_stage == "awaiting_reference_answer"
-
-
-def test_stage_tool_registry_isolation_between_schema_and_create(tmp_path):
+def test_preview_turn_ferry_config_for_planning_uses_graph_tools_only(tmp_path):
     session = build_data_agent_session(
         {
             "SKILL_CREATOR": {
@@ -640,194 +160,502 @@ def test_stage_tool_registry_isolation_between_schema_and_create(tmp_path):
         output_root=tmp_path / "outputs",
         materialized_config_path=tmp_path / "rendered.yaml",
     )
-    session.user_goal = "帮我查看数据库中有风险的用户"
-    session.reference_summary = "没有"
-    session.schema_summary = "SCHEMA SUMMARY: Person"
-    session.workflow_stage = "awaiting_plan_approval"
+    session.workflow_stage = AWAIT_REFERENCES
+    session.state.user_goal = "帮我分析支行存款"
+    session.state.reference_summary = "未提供参考资料。"
 
-    session._build_turn_data_agent(_inspect_schema_policy(graph_enabled=True), "inspect schema")
-    assert "graph_get_object_types" in set(tool_manager.list_tools())
+    config = session.preview_turn_ferry_config("")
+    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
-    session._build_turn_data_agent(_create_skill_policy(), "批准，请创建")
-    tool_names = set(tool_manager.list_tools())
+    assert "Current stage: planning" in config["SCENARIO"]["chat"]["instructions"]
+    assert "graph_get_object_types" in tool_names
+    assert "graph_sorted_search" not in tool_names
+    assert "create_skill_scaffold" not in tool_names
 
+
+def test_preview_turn_ferry_config_for_build_run_uses_minimal_build_tools(tmp_path):
+    session = _make_session(tmp_path)
+    session.state.user_goal = "帮我分析深圳蛇口支行的本外币存款日均余额"
+    plan_ref = session.artifacts.write_text("plans/plan_v01.md", "# 技能执行流程计划\n\n已批准方案")
+    plan = session.plan_agent.register_plan(
+        state=session.state,
+        artifact_ref=plan_ref,
+        skill_name="深圳蛇口支行本外币公司存款日均余额分析",
+        skill_slug="skill-bank-analysis",
+    )
+    plan.status = "approved"
+    session.state.approved_plan_version = plan.version
+    session.workflow_stage = BUILDING_AND_RUNNING
+
+    config = session.preview_turn_ferry_config("")
+    tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
+
+    assert "Current stage: building_and_running" in config["SCENARIO"]["chat"]["instructions"]
+    assert "bash" not in tool_names
+    assert "list_available_skills" not in tool_names
     assert "create_skill_scaffold" in tool_names
-    assert "graph_get_object_types" not in tool_names
+    assert "reload_skill" in tool_names
+    assert "execute_skill_script" in tool_names
+    assert "write_file" in tool_names
+    assert "apply_patch" in tool_names
 
 
-def test_handle_create_skill_turn_runs_serial_substages(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path / "skills")}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-create-flow",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_plan_approval",
-        user_goal="帮我查看数据库中有风险的用户",
-        plan_summary="建议创建技能 `identify-risky-customers`，使用 GraphConnector 查询 Person 风险客户。",
+def test_slugify_falls_back_to_stable_hash_for_non_ascii_name():
+    slug = _slugify("深圳蛇口支行本外币公司存款日均余额分析")
+
+    assert slug.startswith("skill-")
+    assert slug != "generated-skill"
+
+
+def test_idle_turn_runs_existing_skill_agent_and_enters_create_confirmation(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+
+    async def fake_run(**kwargs):
+        return StageResult(
+            stage_name="existing_skill",
+            result_code="need_create_confirmation",
+            user_message="没有现成技能，是否要创建新技能？",
+        ), None
+
+    monkeypatch.setattr(session.existing_skill_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("帮我查看有风险的客户"))
+
+    assert "是否要创建" in extract_last_message_text(result)
+    assert session.user_goal == "帮我查看有风险的客户"
+    assert session.workflow_stage == AWAIT_CREATE_CONFIRMATION
+
+
+def test_idle_turn_routes_create_question_text_to_create_confirmation(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+
+    async def fake_route_worker_result(state, *, worker_name, result_code, assistant_text):
+        assert worker_name == "ExistingSkillAgent"
+        assert result_code == "route_with_router"
+        assert "是否需要创建一个新的技能" in assistant_text
+        return RouterDecision(
+            decision="need_create_confirmation",
+            next_state=AWAIT_CREATE_CONFIRMATION,
+            confidence=0.92,
+            next_question_type="create_confirmation",
+        )
+
+    session.router.route_worker_result = fake_route_worker_result
+
+    async def fake_run(**kwargs):
+        return (
+            StageResult(
+                stage_name="existing_skill",
+                result_code="route_with_router",
+                user_message="现有技能无法满足用户需求。是否需要创建一个新的技能来处理银行分支机构存款余额分析？",
+            ),
+            None,
+        )
+
+    monkeypatch.setattr(session.existing_skill_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("帮我分析深圳蛇口支行的本外币存款日均余额"))
+
+    assert "是否需要创建一个新的技能" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_CREATE_CONFIRMATION
+    assert session.state.last_question_type == "create_confirmation"
+
+
+def test_confirm_create_moves_to_reference_gate(tmp_path):
+    session = _make_session(tmp_path)
+    session.workflow_stage = AWAIT_CREATE_CONFIRMATION
+    session.state.user_goal = "帮我查看有风险的客户"
+    session.state.last_question_type = "create_confirmation"
+
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="confirm_create",
+            next_state=AWAIT_REFERENCES,
+            confidence=1.0,
+            next_question_type="references_request",
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    result = asyncio.run(session.ask("是，创建吧"))
+
+    assert "请告诉我是否有可参考的资料" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_REFERENCES
+    assert session.active_turn_stage == "ask_references"
+
+
+def test_reference_answer_runs_plan_agent_and_records_plan(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.workflow_stage = AWAIT_REFERENCES
+    session.state.user_goal = "帮我分析支行存款"
+    session.state.last_question_type = "references_request"
+
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="no_references",
+            next_state="PLANNING",
+            confidence=1.0,
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    async def fake_run(**kwargs):
+        return (
+            StageResult(
+                stage_name="plan",
+                result_code="plan_ready",
+                user_message=(
+                    "# 技能执行流程计划\n\n"
+                    "**技能名称**: branch-deposit-analysis\n"
+                    "**描述**: 查询支行存款并做趋势分析\n\n"
+                    "## 所需图数据库实体\n- Organ\n\n"
+                    "## 执行步骤\n- step 1\n\n"
+                    "## 最终输出格式\n{}\n\n"
+                    "## 示例执行\n- demo\n\n"
+                    "## 重要说明\n- note\n\n"
+                    "## 本版相对上一版的修改\n- 初始版本\n\n"
+                    "是否按这个方案创建并执行？"
+                ),
+                metadata={"skill_name": "branch-deposit-analysis", "skill_slug": "branch-deposit-analysis"},
+            ),
+            object(),
+        )
+
+    monkeypatch.setattr(session.plan_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("没有"))
+
+    assert "技能执行流程计划" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_PLAN_APPROVAL
+    assert session.state.current_plan is not None
+    assert session.state.current_plan.skill_slug == "branch-deposit-analysis"
+
+
+def test_plan_revision_runs_plan_agent_again_and_versions_history(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.state.user_goal = "帮我分析支行存款"
+    first_plan_ref = session.artifacts.write_text("plans/plan_v01.md", "# 技能执行流程计划\n\n旧方案")
+    session.plan_agent.register_plan(
+        state=session.state,
+        artifact_ref=first_plan_ref,
+        skill_name="branch-deposit-analysis",
+        skill_slug="branch-deposit-analysis",
+    )
+    session.workflow_stage = AWAIT_PLAN_APPROVAL
+    session.state.last_question_type = "plan_approval"
+
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="revise_plan",
+            next_state="PLANNING",
+            confidence=1.0,
+            feedback_type="semantic_mismatch",
+            feedback_summary=reply,
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    async def fake_run(**kwargs):
+        return (
+            StageResult(
+                stage_name="plan",
+                result_code="plan_ready",
+                user_message=(
+                    "# 技能执行流程计划\n\n"
+                    "**技能名称**: branch-deposit-analysis\n"
+                    "**描述**: 修订版\n\n"
+                    "## 所需图数据库实体\n- Organ\n\n"
+                    "## 执行步骤\n- step 1 revised\n\n"
+                    "## 最终输出格式\n{}\n\n"
+                    "## 示例执行\n- demo\n\n"
+                    "## 重要说明\n- note\n\n"
+                    "## 本版相对上一版的修改\n- 修正了步骤 2\n\n"
+                    "是否按这个方案创建并执行？"
+                ),
+                metadata={"skill_name": "branch-deposit-analysis", "skill_slug": "branch-deposit-analysis"},
+            ),
+            object(),
+        )
+
+    monkeypatch.setattr(session.plan_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("第2步逻辑不对，改一下"))
+
+    assert "修订版" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_PLAN_APPROVAL
+    assert len(session.state.plan_history) == 2
+    assert session.state.plan_history[0].status == "superseded"
+
+
+def test_plan_approval_runs_build_and_enters_review(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.state.user_goal = "帮我分析支行存款"
+    plan_ref = session.artifacts.write_text("plans/plan_v01.md", "# 技能执行流程计划\n\n已批准方案")
+    plan = session.plan_agent.register_plan(
+        state=session.state,
+        artifact_ref=plan_ref,
+        skill_name="branch-deposit-analysis",
+        skill_slug="branch-deposit-analysis",
+    )
+    session.state.approved_plan_version = plan.version
+    session.workflow_stage = AWAIT_PLAN_APPROVAL
+    session.state.last_question_type = "plan_approval"
+
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="approve_plan",
+            next_state="BUILDING_AND_RUNNING",
+            confidence=1.0,
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    async def fake_run(**kwargs):
+        draft = session.draft_manager.prepare_draft(skill_slug="branch-deposit-analysis", build_version=1)
+        return (
+            StageResult(
+                stage_name="build_run",
+                result_code="build_ready_for_review",
+                user_message="# 构建与执行结果\n\n## 本次结果结论\n已成功构建并执行",
+                metadata={"draft_id": draft.draft_id, "skill_slug": draft.skill_slug},
+            ),
+            object(),
+            draft,
+        )
+
+    monkeypatch.setattr(session.build_run_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("批准，开始创建"))
+
+    assert "构建与执行结果" in extract_last_message_text(result)
+    assert "是否保存并正式发布这个 skill" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_BUILD_REVIEW
+    assert session.state.current_build is not None
+    assert session.state.current_build.skill_slug == "branch-deposit-analysis"
+
+
+def test_build_review_revision_returns_to_planning(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.state.user_goal = "帮我分析支行存款"
+    plan_ref = session.artifacts.write_text("plans/plan_v01.md", "# 技能执行流程计划\n\n方案")
+    plan = session.plan_agent.register_plan(
+        state=session.state,
+        artifact_ref=plan_ref,
+        skill_name="branch-deposit-analysis",
+        skill_slug="branch-deposit-analysis",
+    )
+    plan.status = "approved"
+    session.state.approved_plan_version = plan.version
+    session.state.build_history.append(
+        BuildVersion(
+            version=1,
+            plan_version=plan.version,
+            draft_id="build-v01",
+            artifact_ref="builds/build_v01.md",
+            status="in_review",
+            skill_slug="branch-deposit-analysis",
+        )
+    )
+    session.workflow_stage = AWAIT_BUILD_REVIEW
+    session.state.last_question_type = "build_review"
+
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="revise_plan",
+            next_state="PLANNING",
+            confidence=1.0,
+            feedback_type="semantic_mismatch",
+            feedback_summary=reply,
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    async def fake_run(**kwargs):
+        return (
+            StageResult(
+                stage_name="plan",
+                result_code="plan_ready",
+                user_message="# 技能执行流程计划\n\n## 本版相对上一版的修改\n- 调整逻辑",
+                metadata={"skill_name": "branch-deposit-analysis", "skill_slug": "branch-deposit-analysis"},
+            ),
+            object(),
+        )
+
+    monkeypatch.setattr(session.plan_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("脚本能跑，但是统计逻辑不对，重新改方案"))
+
+    assert "调整逻辑" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_PLAN_APPROVAL
+    assert session.state.build_history[0].status == "rejected"
+
+
+def test_extract_markdown_section_returns_requested_build_output():
+    markdown = (
+        "# 构建与执行结果\n\n"
+        "## 本次结果结论\nok\n\n"
+        "## 本次实际输出\n"
+        "- 当前值：13,017.93亿元\n"
+        "- 同比：-3.16%\n\n"
+        "## 与已批准方案的对照\n"
+        "- 一致\n"
     )
 
-    stage_calls: list[str] = []
-    reload_calls: list[str] = []
+    section = _extract_markdown_section(markdown, "## 本次实际输出")
 
-    async def fake_run_stage(policy, query, *, clear_history):
-        stage_calls.append(policy.name)
-        return {"messages": [type("Msg", (), {"content": f"{policy.name} done"})()]}
-
-    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
-    monkeypatch.setattr(session.runtime, "reload_skill", lambda name: reload_calls.append(name) or object())
-    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route_create_skill)
-
-    import asyncio
-
-    result = asyncio.run(session.ask("批准，请创建"))
-    text = extract_last_message_text(result)
-
-    assert stage_calls == ["write_skill_doc", "write_skill_script"]
-    assert reload_calls == ["identify-risky-customers"]
-    assert session.created_skill_name == "identify-risky-customers"
-    assert session.workflow_stage == "awaiting_execute_confirmation"
-    assert "identify-risky-customers" in text
-    assert "帮我查看数据库中有风险的用户" in text
-    assert (tmp_path / "skills" / "identify-risky-customers" / "SKILL.md").exists()
+    assert "当前值：13,017.93亿元" in section
+    assert "与已批准方案的对照" not in section
 
 
-def test_plan_approval_accepts_plain_pizhun_reply(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": str(tmp_path / "skills")}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-plan-approve",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_plan_approval",
-        user_goal="帮我查看数据库中有风险的用户",
-        plan_summary="建议创建技能 `identify-risky-customers`。",
+def test_augment_build_response_appends_original_result_section():
+    markdown = (
+        "# 构建与执行结果\n\n"
+        "## 本次结果结论\nok\n\n"
+        "## 本次实际输出\n"
+        "- 当前值：13,017.93亿元\n"
+        "- 同比：-3.16%\n\n"
+        "## 与已批准方案的对照\n"
+        "- 一致\n"
     )
 
-    async def fake_handle_create_skill_turn(query: str):
-        return {"messages": [type("Msg", (), {"content": f"created from {query}"})()]}
+    augmented = _augment_build_response_with_final_result(markdown)
 
-    monkeypatch.setattr(session, "_handle_create_skill_turn", fake_handle_create_skill_turn)
-    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route_create_skill)
-
-    import asyncio
-
-    result = asyncio.run(session.ask("批准"))
-
-    assert extract_last_message_text(result) == "created from 批准"
-    assert session.next_run_id == 1
+    assert "## 原始问题结果" in augmented
+    assert "- 当前值：13,017.93亿元" in augmented
 
 
-async def fake_route_create_skill(query: str) -> str:
-    return "create_skill"
-
-
-def test_execute_confirmation_uses_router_decision(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-execute",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_execute_confirmation",
+def test_augment_build_review_message_appends_save_question():
+    markdown = (
+        "# 构建与执行结果\n\n"
+        "## 本次结果结论\nok\n\n"
+        "## 本次实际输出\n"
+        "- 当前值：13,017.93亿元\n"
     )
 
-    async def fake_route(query: str) -> str:
-        return "execute_skill"
+    augmented = _augment_build_review_message(markdown)
 
-    async def fake_run_stage(policy, query, *, clear_history):
-        assert policy.name == _execute_skill_policy().name
-        return {"messages": [type("Msg", (), {"content": "executed"})()]}
-
-    monkeypatch.setattr(session, "_route_confirmation_stage", fake_route)
-    monkeypatch.setattr(session, "_run_stage", fake_run_stage)
-
-    import asyncio
-
-    result = asyncio.run(session.ask("执行"))
-
-    assert extract_last_message_text(result) == "executed"
-    assert session.workflow_stage == "idle"
+    assert "## 原始问题结果" in augmented
+    assert "是否保存并正式发布这个 skill" in augmented
 
 
-def test_router_decline_keeps_flow_out_of_creation(tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-decline",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_create_confirmation",
+def test_select_skill_slug_prefers_english_description_when_name_is_non_ascii():
+    slug = _select_skill_slug(
+        skill_name="深圳蛇口支行本外币公司存款日均余额分析",
+        description="branch deposit average balance analysis",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
     )
 
-    async def fake_route(query: str) -> str:
-        return "idle"
-
-    session._route_confirmation_stage = fake_route  # type: ignore[method-assign]
-
-    import asyncio
-
-    result = asyncio.run(session.ask("先不创建"))
-
-    assert "先不继续这个创建流程" in extract_last_message_text(result)
-    assert session.workflow_stage == "idle"
+    assert slug == "branch-deposit-average-balance-analysis"
 
 
-def test_confirmation_router_uses_llm_output(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-router",
-        output_root=tmp_path / "outputs",
-        workflow_stage="awaiting_create_confirmation",
+def test_accept_build_promotes_draft_skill(tmp_path):
+    session = _make_session(tmp_path)
+    session.workflow_stage = AWAIT_BUILD_REVIEW
+    session.state.user_goal = "帮我分析支行存款"
+    session.state.last_question_type = "build_review"
+    session.state.build_history.append(
+        BuildVersion(
+            version=1,
+            plan_version=1,
+            draft_id="build-v01",
+            artifact_ref="builds/build_v01.md",
+            status="in_review",
+            skill_slug="branch-deposit-analysis",
+        )
     )
 
-    class FakeLLM:
-        async def ainvoke(self, chat_input, **kwargs):
-            return type("Resp", (), {"content": '{"next_stage":"ask_references"}'})()
+    draft = session.draft_manager.prepare_draft(skill_slug="branch-deposit-analysis", build_version=1)
+    draft.skill_dir.mkdir(parents=True, exist_ok=True)
+    draft.scripts_dir.mkdir(parents=True, exist_ok=True)
+    draft.skill_md_path.write_text(
+        "---\nname: branch-deposit-analysis\ndescription: Branch deposit analysis.\n---\n\n# Skill\n",
+        encoding="utf-8",
+    )
+    draft.primary_script_path.write_text(
+        '"""Run branch deposit analysis."""\nprint("ok")\n',
+        encoding="utf-8",
+    )
+    session._draft_contexts[draft.draft_id] = draft
 
-    monkeypatch.setattr(llm_manager, "get_llm", lambda name: FakeLLM())
+    async def fake_route_user_reply(state, reply):
+        return RouterDecision(
+            decision="accept_build",
+            next_state=DONE,
+            confidence=1.0,
+        )
 
-    import asyncio
+    session.router.route_user_reply = fake_route_user_reply
 
-    result = asyncio.run(session._route_confirmation_stage("创建吧"))
+    result = asyncio.run(session.ask("可以，就这版"))
 
-    assert result == "ask_references"
+    assert "发布了这版实现" in extract_last_message_text(result)
+    assert session.workflow_stage == DONE
+    published_skill = session.runtime.settings.skills_root / "branch-deposit-analysis" / "SKILL.md"
+    assert published_skill.exists()
 
 
-def test_discovery_transition_uses_llm_output(monkeypatch, tmp_path):
-    session = DataAgentSession(
-        data_agent=object(),
-        runtime=SkillCreatorRuntime.from_config({"SKILL_CREATOR": {"skills_root": "fixtures/minimal_skills"}}),
-        source_config={},
-        ferry_config_path=tmp_path / "rendered.yaml",
-        user_id="tester",
-        session_id="session-discovery-router",
-        output_root=tmp_path / "outputs",
-        workflow_stage="idle",
+def test_route_user_reply_uses_llm_path_for_create_confirmation(monkeypatch):
+    router = UnifiedRouter("skill_creator_chat")
+    state = bridge_module.SessionState(
+        workflow_stage=AWAIT_CREATE_CONFIRMATION,
+        last_question_type="create_confirmation",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
     )
 
-    class FakeLLM:
-        async def ainvoke(self, chat_input, **kwargs):
-            return type("Resp", (), {"content": '{"next_workflow_stage":"awaiting_create_confirmation"}'})()
+    async def fake_invoke_router(**kwargs):
+        assert kwargs["event_type"] == "user_reply"
+        assert kwargs["latest_user_reply"] == "创建，但先按深圳分行口径来"
+        return {
+            "decision": "confirm_create",
+            "next_state": "AWAIT_REFERENCES",
+            "confidence": 0.9,
+            "needs_clarification": False,
+            "goal_action": {"type": "none", "normalized_goal": ""},
+            "feedback_action": {"type": "none", "summary": ""},
+            "question_action": {"next_question_type": "references_request", "reuse_previous_plan": False},
+        }
 
-    monkeypatch.setattr(llm_manager, "get_llm", lambda name: FakeLLM())
+    monkeypatch.setattr(router, "_invoke_router", fake_invoke_router)
 
-    import asyncio
+    decision = asyncio.run(router.route_user_reply(state, "创建，但先按深圳分行口径来"))
 
-    result = asyncio.run(
-        session._route_discovery_transition("当前没有匹配的技能。您是否希望我为您创建一个新的技能？")
+    assert decision.decision == "confirm_create"
+    assert decision.next_state == AWAIT_REFERENCES
+
+
+def test_route_worker_result_uses_llm_path_for_existing_skill_prompt(monkeypatch):
+    router = UnifiedRouter("skill_creator_chat")
+    state = bridge_module.SessionState(
+        workflow_stage="DISCOVERING",
+        last_question_type="none",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
     )
 
-    assert result == "awaiting_create_confirmation"
+    async def fake_invoke_router(**kwargs):
+        assert kwargs["event_type"] == "worker_result"
+        assert kwargs["worker_result"]["worker_name"] == "ExistingSkillAgent"
+        assert kwargs["worker_result"]["result_code"] == "route_with_router"
+        assert "是否需要创建一个新的技能" in kwargs["worker_result"]["assistant_text"]
+        return {
+            "decision": "need_create_confirmation",
+            "next_state": AWAIT_CREATE_CONFIRMATION,
+            "confidence": 0.88,
+            "needs_clarification": False,
+            "goal_action": {"type": "none", "normalized_goal": ""},
+            "feedback_action": {"type": "none", "summary": ""},
+            "question_action": {"next_question_type": "create_confirmation", "reuse_previous_plan": False},
+        }
+
+    monkeypatch.setattr(router, "_invoke_router", fake_invoke_router)
+
+    decision = asyncio.run(
+        router.route_worker_result(
+            state,
+            worker_name="ExistingSkillAgent",
+            result_code="route_with_router",
+            assistant_text="现有技能无法满足用户需求。是否需要创建一个新的技能来处理银行分支机构存款余额分析？",
+        )
+    )
+
+    assert decision.decision == "need_create_confirmation"
+    assert decision.next_state == AWAIT_CREATE_CONFIRMATION

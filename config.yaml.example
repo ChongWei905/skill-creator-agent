@@ -1,0 +1,26 @@
+BOOTSTRAP:
+  ferry_root: "../ferry"
+
+AGENT_CONFIG:
+  name: "skill_creator"
+  backend: "langgraph"
+  type: "react"
+  agent_type: "skill_creator"
+  debug: true
+
+MODEL:
+  skill_creator_chat:
+    provider: "openai"
+    model_type: "chat"
+    params:
+      model: "deepseek-chat"
+      api_key: "YOUR_API_KEY"
+      base_url: "https://api.deepseek.com"
+      max_tokens: 4096
+      max_retries: 3
+
+SKILL_CREATOR:
+  skills_root: "skills"
+  graph_enabled: true
+  graph_base_url: "http://127.0.0.1:8000"
+  graph_timeout: 30
