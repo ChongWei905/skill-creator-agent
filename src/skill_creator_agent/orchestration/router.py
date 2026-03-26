@@ -10,6 +10,12 @@ from skill_creator_agent.orchestration.models import (
     AWAIT_CREATE_CONFIRMATION,
     AWAIT_PLAN_APPROVAL,
     AWAIT_REFERENCES,
+    BUILDING_AND_RUNNING,
+    CANCELLED,
+    DONE,
+    ERROR,
+    IDLE,
+    PLANNING,
     RouterDecision,
     SessionState,
 )
@@ -25,41 +31,41 @@ ALLOWED_USER_DECISIONS: dict[str, tuple[str, ...]] = {
 USER_NEXT_STATES: dict[str, dict[str, str]] = {
     AWAIT_CREATE_CONFIRMATION: {
         "confirm_create": AWAIT_REFERENCES,
-        "decline_create": "IDLE",
-        "switch_goal": "IDLE",
+        "decline_create": IDLE,
+        "switch_goal": IDLE,
         "clarify": AWAIT_CREATE_CONFIRMATION,
-        "cancel": "CANCELLED",
+        "cancel": CANCELLED,
     },
     AWAIT_REFERENCES: {
-        "provide_references": "PLANNING",
-        "no_references": "PLANNING",
-        "switch_goal": "IDLE",
+        "provide_references": PLANNING,
+        "no_references": PLANNING,
+        "switch_goal": IDLE,
         "clarify": AWAIT_REFERENCES,
-        "cancel": "CANCELLED",
+        "cancel": CANCELLED,
     },
     AWAIT_PLAN_APPROVAL: {
-        "approve_plan": "BUILDING_AND_RUNNING",
-        "revise_plan": "PLANNING",
-        "switch_goal": "IDLE",
+        "approve_plan": BUILDING_AND_RUNNING,
+        "revise_plan": PLANNING,
+        "switch_goal": IDLE,
         "clarify": AWAIT_PLAN_APPROVAL,
-        "cancel": "CANCELLED",
+        "cancel": CANCELLED,
     },
     AWAIT_BUILD_REVIEW: {
-        "accept_build": "DONE",
-        "revise_plan": "PLANNING",
-        "switch_goal": "IDLE",
+        "accept_build": DONE,
+        "revise_plan": PLANNING,
+        "switch_goal": IDLE,
         "clarify": AWAIT_BUILD_REVIEW,
-        "cancel": "CANCELLED",
+        "cancel": CANCELLED,
     },
 }
 
 WORKER_DECISIONS: dict[str, tuple[str, str]] = {
-    "task_answered": ("task_answered", "DONE"),
+    "task_answered": ("task_answered", DONE),
     "need_create_confirmation": ("need_create_confirmation", AWAIT_CREATE_CONFIRMATION),
     "plan_ready": ("plan_ready", AWAIT_PLAN_APPROVAL),
     "build_ready_for_review": ("build_ready_for_review", AWAIT_BUILD_REVIEW),
-    "completed": ("completed", "DONE"),
-    "hard_error": ("hard_error", "ERROR"),
+    "completed": ("completed", DONE),
+    "hard_error": ("hard_error", ERROR),
 }
 
 WORKER_ALLOWED_DECISIONS: dict[str, tuple[str, ...]] = {
@@ -70,17 +76,17 @@ WORKER_ALLOWED_DECISIONS: dict[str, tuple[str, ...]] = {
 
 WORKER_ALLOWED_STATES: dict[str, dict[str, str]] = {
     "ExistingSkillAgent": {
-        "task_answered": "DONE",
+        "task_answered": DONE,
         "need_create_confirmation": AWAIT_CREATE_CONFIRMATION,
-        "hard_error": "ERROR",
+        "hard_error": ERROR,
     },
     "PlanAgent": {
         "plan_ready": AWAIT_PLAN_APPROVAL,
-        "hard_error": "ERROR",
+        "hard_error": ERROR,
     },
     "BuildRunAgent": {
         "build_ready_for_review": AWAIT_BUILD_REVIEW,
-        "hard_error": "ERROR",
+        "hard_error": ERROR,
     },
 }
 

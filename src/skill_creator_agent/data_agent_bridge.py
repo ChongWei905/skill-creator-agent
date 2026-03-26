@@ -54,7 +54,26 @@ class DataAgentSession:
         output_root: Path,
         router_model_name: str,
     ) -> None:
-        """Initialize one stateful multi-turn session over Ferry-backed stage agents."""
+        """Initialize one stateful multi-turn session over Ferry-backed stage agents.
+
+        Args:
+            data_agent: The bootstrap Ferry ``DataAgent`` instance created for the session.
+                It is replaced as needed when later stages materialize a different stage agent.
+            runtime: The shared ``SkillCreatorRuntime`` used to inspect skills, execute scripts,
+                and access graph-backed helpers during this session.
+            source_config: The effective configuration mapping after loading defaults and applying
+                caller overrides. This mapping is reused whenever a stage-specific Ferry config
+                needs to be rendered.
+            ferry_config_path: The filesystem path where the current materialized Ferry YAML config
+                is written. Stage execution reuses this location and overwrites it per stage.
+            user_id: The logical user identifier injected into Ferry state for all stage calls.
+            session_id: The stable workflow session identifier. It is used to group stage outputs,
+                artifact storage, and draft skill directories under one session root.
+            output_root: The parent directory under which this session writes stage outputs,
+                artifacts, and draft skill workspaces.
+            router_model_name: The Ferry model name used by ``UnifiedRouter`` when it needs an
+                LLM decision for user replies or non-deterministic worker results.
+        """
         self.data_agent = data_agent
         self.runtime = runtime
         self.source_config = dict(source_config)
