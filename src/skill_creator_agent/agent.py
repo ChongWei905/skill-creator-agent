@@ -18,6 +18,7 @@ from skill_creator_agent.runtime import SkillCreatorRuntime
 class SkillCreatorAgent(FlexAgent):
     @classmethod
     def from_config(cls, config: str | Path | Mapping[str, Any] | None = None) -> "SkillCreatorAgent":
+        """Build a Ferry FlexAgent instance backed by the skill creator runtime."""
         source_cfg = _config_to_dict(config)
         runtime = SkillCreatorRuntime.from_config(source_cfg)
         configure_runtime_tools(config=source_cfg, runtime=runtime)
@@ -34,15 +35,19 @@ class SkillCreatorAgent(FlexAgent):
         return agent
 
     def list_skills(self) -> list[dict[str, Any]]:
+        """Return all skills currently visible to this agent runtime."""
         return self.runtime.list_skills()
 
     def read_skill_content(self, name: str) -> str:
+        """Read the SKILL.md content for one registered skill."""
         return self.runtime.read_skill_content(name)
 
     def list_skill_scripts(self, name: str) -> list[dict[str, Any]]:
+        """Return metadata for every script bundled in one skill package."""
         return self.runtime.list_skill_scripts(name)
 
     def read_script_source(self, name: str, script_name: str) -> str:
+        """Read the source code for one script inside a skill package."""
         return self.runtime.read_script_source(name, script_name)
 
     def execute_skill_script(
@@ -52,12 +57,15 @@ class SkillCreatorAgent(FlexAgent):
         args: list[str] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
+        """Execute one skill script through the runtime and return its structured result."""
         return self.runtime.execute_skill_script(name, script_name, args=args, **kwargs)
 
     def reload_skill(self, name: str):
+        """Reload one skill from disk into the runtime registry."""
         return self.runtime.reload_skill(name)
 
     def build_system_prompt(self, **kwargs: Any) -> str:
+        """Render the runtime system prompt used by the wrapped Ferry agent."""
         return self.runtime.build_system_prompt(**kwargs)
 
     def create_skill_scaffold(
@@ -69,6 +77,7 @@ class SkillCreatorAgent(FlexAgent):
         script_files: dict[str, str] | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        """Create a new skill scaffold through the runtime helper."""
         return self.runtime.create_skill_scaffold(
             name,
             description,
@@ -78,9 +87,11 @@ class SkillCreatorAgent(FlexAgent):
         )
 
     def build_ferry_config(self) -> dict[str, Any]:
+        """Return a copy of the effective Ferry configuration for this agent."""
         return dict(self.ferry_config)
 
     def materialize_ferry_config(self, output_path: str | Path) -> Path:
+        """Write the effective Ferry configuration to disk and return the path."""
         return materialize_ferry_config(self.source_config, runtime=self.runtime, output_path=output_path)
 
 

@@ -87,9 +87,11 @@ WORKER_ALLOWED_STATES: dict[str, dict[str, str]] = {
 
 class UnifiedRouter:
     def __init__(self, model_name: str) -> None:
+        """Create a router bound to one Ferry-managed LLM name."""
         self.model_name = model_name
 
     async def route_user_reply(self, state: SessionState, reply: str) -> RouterDecision:
+        """Route one user reply from the current workflow state into the next state."""
         allowed = ALLOWED_USER_DECISIONS.get(state.workflow_stage)
         if not allowed:
             return RouterDecision(decision="clarify", next_state=state.workflow_stage, needs_clarification=True)
@@ -119,6 +121,7 @@ class UnifiedRouter:
         result_code: str,
         assistant_text: str,
     ) -> RouterDecision:
+        """Route one stage result into the next workflow state."""
         if result_code in WORKER_DECISIONS:
             decision, next_state = WORKER_DECISIONS[result_code]
             return RouterDecision(
@@ -237,6 +240,8 @@ def _parse_json(content: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
 def _decision_question_type(decision: str) -> str:
     mapping = {
         "confirm_create": "references_request",

@@ -29,6 +29,7 @@ class BuildRunAgent:
         approved_plan: str,
         draft: DraftSkillContext,
     ) -> StageSpec:
+        """Build the stage spec used to implement and execute one approved draft skill."""
         allowed_tools = (
             set(BUILD_FILE_TOOL_NAMES)
             | set(SKILL_CREATION_TOOL_NAMES)
@@ -72,6 +73,7 @@ class BuildRunAgent:
         stage_session_id: str,
         stage_output_path,
     ) -> tuple[StageResult, object, DraftSkillContext]:
+        """Run the build-and-execute stage for the currently approved plan."""
         approved = state.approved_plan
         if approved is None:
             raise RuntimeError("BuildRunAgent requires an approved plan.")
@@ -116,6 +118,7 @@ class BuildRunAgent:
         draft_id: str,
         skill_slug: str,
     ) -> BuildVersion:
+        """Append one build version in review state to the session history."""
         approved_plan = state.approved_plan
         if approved_plan is None:
             raise RuntimeError("Cannot register build without an approved plan.")

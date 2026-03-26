@@ -21,6 +21,7 @@ class PlanAgent:
         previous_plan_text: str,
         revision_feedback_text: str,
     ) -> StageSpec:
+        """Build the stage spec used to draft or revise the user-facing plan document."""
         reference_bundle = state.reference_summary or "未提供参考资料。"
         allowed_tools = set(PLAN_GRAPH_TOOL_NAMES) if runtime.settings.graph_enabled else set()
         return StageSpec(
@@ -57,6 +58,7 @@ class PlanAgent:
         stage_session_id: str,
         stage_output_path,
     ) -> tuple[StageResult, object]:
+        """Run the planning stage and capture plan metadata from the returned text."""
         spec = self.build_spec(
             runtime=runtime,
             state=state,
@@ -103,6 +105,7 @@ class PlanAgent:
         skill_name: str,
         skill_slug: str,
     ) -> PlanVersion:
+        """Append one new plan version to session state and return it."""
         previous_plan = state.current_plan.version if state.current_plan else None
         plan = PlanVersion(
             version=state.next_plan_version(),

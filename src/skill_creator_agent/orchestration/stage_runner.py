@@ -27,6 +27,7 @@ class StageRunner:
         source_config: Mapping[str, Any],
         ferry_config_path: Path,
     ) -> None:
+        """Store the base config used to materialize one-off stage executions."""
         self.source_config = dict(source_config)
         self.ferry_config_path = ferry_config_path.resolve()
 
@@ -41,6 +42,7 @@ class StageRunner:
         stage_output_path: Path,
         clear_history: bool = True,
     ) -> StageExecutionResult:
+        """Execute one stage through Ferry and return its response bundle."""
         data_agent = self.build_data_agent(spec=spec, runtime=runtime)
         response = await data_agent.chat(
             query,
@@ -67,6 +69,7 @@ class StageRunner:
         spec: StageSpec,
         runtime: SkillCreatorRuntime,
     ) -> DataAgent:
+        """Materialize Ferry config for one stage and build its DataAgent instance."""
         reset_ferry_singletons()
         configure_runtime_tools(config=self.source_config, runtime=runtime)
         materialize_ferry_config(
@@ -87,6 +90,7 @@ class StageRunner:
         spec: StageSpec,
         runtime: SkillCreatorRuntime,
     ) -> dict[str, Any]:
+        """Preview the rendered Ferry config for one stage without executing it."""
         return build_ferry_config(
             self.source_config,
             runtime=runtime,

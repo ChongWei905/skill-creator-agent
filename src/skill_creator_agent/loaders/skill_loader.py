@@ -21,10 +21,12 @@ class SkillLoader:
     }
 
     def __init__(self, skills_root: str | Path):
+        """Initialize a loader bound to one skill root directory."""
         self.skills_root = Path(skills_root).expanduser().resolve()
         self.skills: dict[str, Skill] = {}
 
     def load_all(self) -> dict[str, Skill]:
+        """Load every valid skill package found under the configured root."""
         if not self.skills_root.exists():
             raise FileNotFoundError(f"Skills directory not found: {self.skills_root}")
 
@@ -39,6 +41,7 @@ class SkillLoader:
         return dict(self.skills)
 
     def load_skill_dir(self, skill_dir: str | Path, *, strict: bool = True) -> Skill | None:
+        """Load one skill directory and optionally skip invalid packages."""
         skill_path = Path(skill_dir).expanduser().resolve()
         skill_md_path = skill_path / "SKILL.md"
         if not skill_md_path.exists():
@@ -58,12 +61,15 @@ class SkillLoader:
         return skill
 
     def get_skill(self, name: str) -> Skill | None:
+        """Return one loaded skill by name if it is currently cached."""
         return self.skills.get(name)
 
     def list_skill_names(self) -> list[str]:
+        """Return all loaded skill names in stable sorted order."""
         return sorted(self.skills)
 
     def reload_skill(self, name: str) -> Skill:
+        """Reload one skill from disk and refresh the cached representation."""
         current = self.skills.get(name)
         target_dir = current.path if current else self.skills_root / name
         skill = self.load_skill_dir(target_dir, strict=True)
@@ -71,6 +77,7 @@ class SkillLoader:
         return skill
 
     def validate_frontmatter(self, frontmatter: dict, skill_dir: str | Path) -> None:
+        """Validate frontmatter against the loader's current skill package rules."""
         self._validate_frontmatter(frontmatter, Path(skill_dir).expanduser().resolve())
 
     def _parse_skill(self, skill_md_path: Path) -> Skill:

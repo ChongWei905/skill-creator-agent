@@ -25,6 +25,7 @@ class SkillScript:
         timeout: int = 300,
         graph_db_config: dict[str, Any] | None = None,
     ) -> tuple[int, str, str]:
+        """Execute the script with the runtime environment expected by generated skills."""
         cmd = self._build_command(args or [])
         run_env = os.environ.copy()
         if env:
@@ -64,6 +65,7 @@ class SkillScript:
         return result.returncode, result.stdout, result.stderr
 
     def infer_default_cwd(self) -> Path:
+        """Infer the default working directory used when this script is executed."""
         skill_root = self.path.parent.parent.resolve()
         for ancestor in skill_root.parents:
             skills_dir = ancestor / "skills"
@@ -96,18 +98,22 @@ class Skill:
 
     @property
     def skill_md_path(self) -> Path:
+        """Return the canonical SKILL.md path for this skill package."""
         return self.path / "SKILL.md"
 
     def list_script_names(self) -> list[str]:
+        """Return all registered script names for this skill."""
         return [script.name for script in self.scripts]
 
     def get_script(self, name: str) -> SkillScript | None:
+        """Return one script by logical name or filename if it exists."""
         for script in self.scripts:
             if script.name == name or script.path.name == name:
                 return script
         return None
 
     def to_metadata_context(self) -> str:
+        """Render a compact XML-like context block without embedding full SKILL.md content."""
         scripts_info = self._render_scripts_block()
         return (
             f'<skill name="{self.name}" path="{self.path}">\n'
@@ -117,6 +123,7 @@ class Skill:
         )
 
     def to_full_context(self) -> str:
+        """Render a full XML-like context block that includes the skill body content."""
         scripts_info = self._render_scripts_block()
         return (
             f'<skill name="{self.name}" path="{self.path}">\n'
@@ -129,6 +136,7 @@ class Skill:
         )
 
     def to_context(self) -> str:
+        """Render the default context representation used by the runtime."""
         return self.to_metadata_context()
 
     def _render_scripts_block(self) -> str:

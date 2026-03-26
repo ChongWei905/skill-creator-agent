@@ -23,17 +23,33 @@ from skill_creator_agent.settings import SkillCreatorSettings, resolve_skill_cre
 
 class SkillCreatorRuntime:
     def __init__(self, settings: SkillCreatorSettings, loader: SkillLoader | None = None):
+        """Initialize the runtime with settings and an optional prebuilt skill loader."""
         self.settings = settings
         self.loader = loader or SkillLoader(settings.skills_root)
         self._skills_loaded = False
         self._graph_connector: GraphConnector | None = None
 
+    @staticmethod
+    def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
+        frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
+        rendered_body = body.strip() or "# Skill\n\nDescribe the workflow and execution steps for this skill."
+        return f"---\n{frontmatter_text}\n---\n\n{rendered_body}\n"
+
+    @staticmethod
+    def _resolve_script_path(scripts_dir: Path, relative_path: str) -> Path:
+        candidate = (scripts_dir / relative_path).resolve()
+        if not candidate.is_relative_to(scripts_dir.resolve()):
+            raise ValueError(f"Script path must stay within scripts/: {relative_path}")
+        return candidate
+
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None = None) -> "SkillCreatorRuntime":
+        """Build a runtime directly from a raw configuration mapping."""
         settings = resolve_skill_creator_settings(config)
         return cls(settings=settings)
 
     def load_skills(self, *, force: bool = False) -> dict[str, Skill]:
+        """Load skills from disk and return the current in-memory registry."""
         if force or not self._skills_loaded:
             self.ensure_skills_root()
             self.loader.load_all()
@@ -41,14 +57,17 @@ class SkillCreatorRuntime:
         return dict(self.loader.skills)
 
     def ensure_skills_root(self) -> Path:
+        """Create the configured skills root if needed and return its resolved path."""
         self.settings.skills_root.mkdir(parents=True, exist_ok=True)
         return self.settings.skills_root
 
     def list_skills(self) -> list[dict[str, Any]]:
+        """Return all known skills as serializable metadata dictionaries."""
         self.load_skills()
         return [self.skill_to_dict(skill) for skill in self.loader.skills.values()]
 
     def get_skill(self, name: str) -> Skill:
+        """Return one loaded skill by name or raise if it does not exist."""
         self.load_skills()
         skill = self.loader.get_skill(name)
         if skill is None:
@@ -56,9 +75,11 @@ class SkillCreatorRuntime:
         return skill
 
     def read_skill_content(self, name: str) -> str:
+        """Read and return the raw SKILL.md content for one skill."""
         return self.get_skill(name).skill_md_path.read_text(encoding="utf-8")
 
     def list_skill_scripts(self, name: str) -> list[dict[str, Any]]:
+        """Return all scripts registered under one skill package."""
         skill = self.get_skill(name)
         return [
             {
@@ -71,6 +92,7 @@ class SkillCreatorRuntime:
         ]
 
     def read_script_source(self, name: str, script_name: str) -> str:
+        """Read one script file from a loaded skill package."""
         script = self._get_script(name, script_name)
         return script.path.read_text(encoding="utf-8")
 
@@ -85,6 +107,7 @@ class SkillCreatorRuntime:
         timeout: int = 300,
         graph_db_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Execute a skill script and return a structured process result payload."""
         script = self._get_script(name, script_name)
         normalized_cwd = Path(cwd).expanduser().resolve() if cwd is not None else None
         if graph_db_config is None and self.settings.graph_enabled:
@@ -105,12 +128,14 @@ class SkillCreatorRuntime:
         }
 
     def graph_db_config(self) -> dict[str, Any]:
+        """Return the graph connection settings exposed to generated scripts."""
         return {
             "base_url": self.settings.graph_base_url,
             "timeout": self.settings.graph_timeout,
         }
 
     def get_graph_connector(self) -> GraphConnector:
+        """Return a cached graph connector for the configured graph endpoint."""
         if not self.settings.graph_enabled:
             raise RuntimeError("Graph access is disabled for this runtime.")
         if self._graph_connector is None:
@@ -121,12 +146,15 @@ class SkillCreatorRuntime:
         return self._graph_connector
 
     def graph_get_object_types(self) -> list[str]:
+        """List all graph object types available from the configured graph service."""
         return self.get_graph_connector().get_object_types()
 
     def graph_get_object_relations(self) -> list[str]:
+        """List all graph relation types available from the configured graph service."""
         return self.get_graph_connector().get_object_relations()
 
     def graph_get_entity_schema(self, entity_type: str) -> dict[str, Any]:
+        """Return a lightweight schema snapshot for one graph entity type."""
         return self.get_graph_connector().get_entity_schema(entity_type)
 
     def graph_query_examples(
@@ -136,6 +164,7 @@ class SkillCreatorRuntime:
         limit: int = 5,
         filter_dict: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """Fetch example records for one graph entity type."""
         return self.get_graph_connector().query_examples(
             entity_type,
             limit=limit,
@@ -150,6 +179,7 @@ class SkillCreatorRuntime:
         *,
         get_all_properties: bool = False,
     ) -> list[dict[str, Any]]:
+        """Run a property filter query through the graph connector."""
         return self.get_graph_connector().property_filter(
             element_class,
             element_type,
@@ -163,6 +193,7 @@ class SkillCreatorRuntime:
         element_type: str = "NODE",
         element_uuid: str | None = None,
     ) -> dict[str, Any]:
+        """Fetch one graph element's property payload by UUID."""
         return self.get_graph_connector().property_info_search(
             element_class,
             element_type,
@@ -175,6 +206,7 @@ class SkillCreatorRuntime:
         hop_num: int,
         accurate_flag: bool = False,
     ) -> list[dict[str, Any]]:
+        """Run a hop search starting from one graph UUID."""
         return self.get_graph_connector().hop_search(
             uuid,
             hop_num,
@@ -187,6 +219,7 @@ class SkillCreatorRuntime:
         element_type: str = "NODE",
         filter_dict: dict[str, Any] | None = None,
     ) -> int:
+        """Count graph elements that satisfy the provided filters."""
         return self.get_graph_connector().count_search(
             element_class,
             element_type,
@@ -201,6 +234,7 @@ class SkillCreatorRuntime:
         agg_func: str | None = None,
         filter_dict: dict[str, Any] | None = None,
     ) -> Any:
+        """Run an aggregate search through the graph connector."""
         return self.get_graph_connector().aggregate_search(
             element_class,
             element_type,
@@ -219,6 +253,7 @@ class SkillCreatorRuntime:
         ascending: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        """Run a sorted graph search with optional return property constraints."""
         kwargs: dict[str, Any] = {
             "filter_dict": filter_dict,
             "return_properties": return_properties,
@@ -238,12 +273,14 @@ class SkillCreatorRuntime:
         path_pattern: list[list[Any]],
         return_vars: list[str] | None = None,
     ) -> list[dict[str, Any]]:
+        """Run a graph pattern search with optional return variable projection."""
         return self.get_graph_connector().pattern_search(
             path_pattern,
             return_vars=return_vars,
         )
 
     def reload_skill(self, name: str) -> Skill:
+        """Reload one skill from disk and refresh the runtime cache."""
         self.load_skills()
         return self.loader.reload_skill(name)
 
@@ -258,6 +295,7 @@ class SkillCreatorRuntime:
         allowed_tools: list[str] | None = None,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        """Create a new skill package skeleton on disk and return its file inventory."""
         self.ensure_skills_root()
         target_dir = (self.settings.skills_root / name).resolve()
         frontmatter = {
@@ -301,6 +339,7 @@ class SkillCreatorRuntime:
         }
 
     def build_ferry_skill_registry(self) -> list[dict[str, Any]]:
+        """Build the skill registry payload expected by Ferry configuration rendering."""
         self.load_skills()
         registry: list[dict[str, Any]] = []
         for skill in self.loader.skills.values():
@@ -321,6 +360,7 @@ class SkillCreatorRuntime:
         return registry
 
     def build_skills_context(self, *, full: bool = False) -> str:
+        """Render all loaded skills into the context block format used by prompts."""
         self.load_skills()
         render = Skill.to_full_context if full else Skill.to_metadata_context
         return "\n".join(render(skill) for skill in self.loader.skills.values())
@@ -332,6 +372,7 @@ class SkillCreatorRuntime:
         just_created_skill: str | None = None,
         original_intent: str | None = None,
     ) -> str:
+        """Render the effective system prompt for one runtime interaction mode."""
         skills_context = self.build_skills_context(full=False)
         graph_db_instruction = ""
         if self.settings.graph_enabled:
@@ -361,10 +402,12 @@ class SkillCreatorRuntime:
         )
 
     def build_missing_skill_prompt(self, *, direct_query: bool = False) -> str:
+        """Render the fallback prompt used when no existing skill is a fit."""
         prompt_name = NO_SKILL_FALLBACK_DIRECT if direct_query else NO_SKILL_FALLBACK
         return load_prompt(prompt_name)
 
     def skill_to_dict(self, skill: Skill) -> dict[str, Any]:
+        """Convert one loaded skill into a serializable metadata dictionary."""
         return {
             "name": skill.name,
             "description": skill.description,
@@ -386,16 +429,3 @@ class SkillCreatorRuntime:
         if script is None:
             raise KeyError(f"Unknown script '{script_name}' for skill '{name}'")
         return script
-
-    @staticmethod
-    def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
-        frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
-        rendered_body = body.strip() or "# Skill\n\nDescribe the workflow and execution steps for this skill."
-        return f"---\n{frontmatter_text}\n---\n\n{rendered_body}\n"
-
-    @staticmethod
-    def _resolve_script_path(scripts_dir: Path, relative_path: str) -> Path:
-        candidate = (scripts_dir / relative_path).resolve()
-        if not candidate.is_relative_to(scripts_dir.resolve()):
-            raise ValueError(f"Script path must stay within scripts/: {relative_path}")
-        return candidate

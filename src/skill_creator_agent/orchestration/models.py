@@ -56,6 +56,7 @@ class SessionState:
     active_draft_id: str = ""
 
     def reset(self) -> None:
+        """Reset the session back to its initial idle state."""
         self.workflow_stage = IDLE
         self.active_turn_stage = "existing_skill"
         self.last_question_type = "none"
@@ -75,12 +76,14 @@ class SessionState:
 
     @property
     def current_plan(self) -> PlanVersion | None:
+        """Return the most recent plan version recorded in this session."""
         if not self.plan_history:
             return None
         return self.plan_history[-1]
 
     @property
     def approved_plan(self) -> PlanVersion | None:
+        """Return the plan version currently marked as approved, if any."""
         if self.approved_plan_version is None:
             return None
         for plan in reversed(self.plan_history):
@@ -90,17 +93,21 @@ class SessionState:
 
     @property
     def current_build(self) -> BuildVersion | None:
+        """Return the most recent build version recorded in this session."""
         if not self.build_history:
             return None
         return self.build_history[-1]
 
     def next_plan_version(self) -> int:
+        """Return the next sequential plan version number."""
         return len(self.plan_history) + 1
 
     def next_build_version(self) -> int:
+        """Return the next sequential build version number."""
         return len(self.build_history) + 1
 
     def state_digest(self) -> dict[str, Any]:
+        """Return a compact session summary for router prompting."""
         return {
             "reference_provided": bool(self.reference_artifact_ref),
             "current_plan_version": self.current_plan.version if self.current_plan else None,

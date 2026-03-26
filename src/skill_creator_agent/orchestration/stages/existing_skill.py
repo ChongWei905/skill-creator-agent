@@ -11,6 +11,7 @@ class ExistingSkillAgent:
     stage_name = "existing_skill"
 
     def build_spec(self, *, runtime: SkillCreatorRuntime, state: SessionState, query: str) -> StageSpec:
+        """Build the stage spec used to discover or execute an existing skill."""
         skills = runtime.list_skills()
         allowed_tools = set(SKILL_EXECUTION_TOOL_NAMES) if skills else set()
         skill_metadata = "\n".join(f"- {item['name']}: {item['description']}" for item in skills[:20]) or "- None"
@@ -41,6 +42,7 @@ class ExistingSkillAgent:
         stage_session_id: str,
         stage_output_path,
     ) -> tuple[StageResult, object]:
+        """Run the discovery stage and either answer directly or request creation."""
         skills = runtime.list_skills()
         if not skills:
             goal = state.user_goal or query or "当前需求"

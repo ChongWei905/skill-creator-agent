@@ -54,6 +54,7 @@ class DataAgentSession:
         output_root: Path,
         router_model_name: str,
     ) -> None:
+        """Initialize one stateful multi-turn session over Ferry-backed stage agents."""
         self.data_agent = data_agent
         self.runtime = runtime
         self.source_config = dict(source_config)
@@ -80,41 +81,51 @@ class DataAgentSession:
 
     @property
     def output_path(self) -> Path:
+        """Return the session-specific output directory."""
         return (self.output_root / self.session_id).resolve()
 
     @property
     def workflow_stage(self) -> str:
+        """Return the current high-level workflow stage."""
         return self.state.workflow_stage
 
     @workflow_stage.setter
     def workflow_stage(self, value: str) -> None:
+        """Update the current high-level workflow stage."""
         self.state.workflow_stage = value
 
     @property
     def active_turn_stage(self) -> str:
+        """Return the active internal stage handling the current turn."""
         return self.state.active_turn_stage
 
     @active_turn_stage.setter
     def active_turn_stage(self, value: str) -> None:
+        """Update the active internal stage handling the current turn."""
         self.state.active_turn_stage = value
 
     @property
     def last_assistant_text(self) -> str:
+        """Return the latest assistant-visible text stored in session state."""
         return self.state.last_assistant_text
 
     @last_assistant_text.setter
     def last_assistant_text(self, value: str) -> None:
+        """Persist the latest assistant-visible text into session state."""
         self.state.last_assistant_text = value
 
     @property
     def user_goal(self) -> str:
+        """Return the normalized user goal currently attached to this session."""
         return self.state.user_goal
 
     @user_goal.setter
     def user_goal(self, value: str) -> None:
+        """Persist the normalized user goal into session state."""
         self.state.user_goal = value
 
     async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
+        """Process one user turn and advance the orchestrated workflow state."""
         normalized = query.strip()
         if not normalized:
             return _text_response("请输入需要处理的内容。")
@@ -146,6 +157,7 @@ class DataAgentSession:
         return response
 
     def reset(self, *, session_id: str | None = None) -> None:
+        """Reset the session state and rebuild the bootstrap stage agent."""
         self.session_id = session_id or _new_session_id()
         self.next_run_id = 0
         self.next_call_id = 0
@@ -162,6 +174,7 @@ class DataAgentSession:
         )
 
     def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
+        """Preview the Ferry config that would be used for the current turn."""
         spec, runtime = self._preview_stage(query.strip())
         return self.stage_runner.preview_config(spec=spec, runtime=runtime)
 
