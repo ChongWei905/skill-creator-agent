@@ -30,9 +30,7 @@ from skill_creator_agent.orchestration import (
     StageRunner,
     UnifiedRouter,
     build_reference_bundle,
-    extract_reference_paths,
 )
-from skill_creator_agent.orchestration.ferry import reset_ferry_singletons
 from skill_creator_agent.paths import project_path
 from skill_creator_agent.runtime import SkillCreatorRuntime
 
@@ -123,27 +121,7 @@ class DataAgentSession:
         """Update the active internal stage handling the current turn."""
         self.state.active_turn_stage = value
 
-    @property
-    def last_assistant_text(self) -> str:
-        """Return the latest assistant-visible text stored in session state."""
-        return self.state.last_assistant_text
-
-    @last_assistant_text.setter
-    def last_assistant_text(self, value: str) -> None:
-        """Persist the latest assistant-visible text into session state."""
-        self.state.last_assistant_text = value
-
-    @property
-    def user_goal(self) -> str:
-        """Return the normalized user goal currently attached to this session."""
-        return self.state.user_goal
-
-    @user_goal.setter
-    def user_goal(self, value: str) -> None:
-        """Persist the normalized user goal into session state."""
-        self.state.user_goal = value
-
-    async def ask(self, query: str, *, clear_history: bool = False) -> dict[str, Any]:
+    async def ask(self, query: str) -> dict[str, Any]:
         """Process one user turn and advance the orchestrated workflow state."""
         normalized = query.strip()
         if not normalized:
@@ -157,20 +135,20 @@ class DataAgentSession:
         if self.workflow_stage == IDLE:
             self.state.user_goal = normalized
             self.state.normalized_goal = normalized
-            response = await self._run_existing_skill_turn(normalized, clear_history=clear_history)
+            response = await self._run_existing_skill_turn(normalized)
         elif self.workflow_stage == AWAIT_CREATE_CONFIRMATION:
-            response = await self._handle_create_confirmation(normalized, clear_history=clear_history)
+            response = await self._handle_create_confirmation(normalized)
         elif self.workflow_stage == AWAIT_REFERENCES:
-            response = await self._handle_references(normalized, clear_history=clear_history)
+            response = await self._handle_references(normalized)
         elif self.workflow_stage == AWAIT_PLAN_APPROVAL:
-            response = await self._handle_plan_approval(normalized, clear_history=clear_history)
+            response = await self._handle_plan_approval(normalized)
         elif self.workflow_stage == AWAIT_BUILD_REVIEW:
-            response = await self._handle_build_review(normalized, clear_history=clear_history)
+            response = await self._handle_build_review(normalized)
         else:
             self.state.reset()
             self.state.user_goal = normalized
             self.state.normalized_goal = normalized
-            response = await self._run_existing_skill_turn(normalized, clear_history=clear_history)
+            response = await self._run_existing_skill_turn(normalized)
 
         self.next_run_id += 1
         return response
@@ -192,12 +170,7 @@ class DataAgentSession:
             runtime=self.runtime,
         )
 
-    def preview_turn_ferry_config(self, query: str) -> dict[str, Any]:
-        """Preview the Ferry config that would be used for the current turn."""
-        spec, runtime = self._preview_stage(query.strip())
-        return self.stage_runner.preview_config(spec=spec, runtime=runtime)
-
-    async def _run_existing_skill_turn(self, query: str, *, clear_history: bool) -> dict[str, Any]:
+    async def _run_existing_skill_turn(self, query: str) -> dict[str, Any]:
         self.workflow_stage = DISCOVERING
         self.active_turn_stage = "existing_skill"
         result, data_agent = await self.existing_skill_agent.run(
@@ -222,13 +195,10 @@ class DataAgentSession:
         self.state.last_assistant_text = result.user_message
         self.workflow_stage = decision.next_state
         self.state.last_question_type = decision.next_question_type
-        if decision.next_state == AWAIT_CREATE_CONFIRMATION:
-            self.active_turn_stage = "existing_skill"
-        else:
-            self.active_turn_stage = "existing_skill"
+        self.active_turn_stage = "existing_skill"
         return result.raw_response or _text_response(result.user_message)
 
-    async def _handle_create_confirmation(self, reply: str, *, clear_history: bool) -> dict[str, Any]:
+    async def _handle_create_confirmation(self, reply: str) -> dict[str, Any]:
         decision = await self.router.route_user_reply(self.state, reply)
         self.state.last_router_decision = decision.decision
 
@@ -244,9 +214,9 @@ class DataAgentSession:
             self.state.last_assistant_text = text
             return _text_response(text)
 
-        return await self._handle_non_worker_decision(decision, reply, clear_history=clear_history)
+        return await self._handle_non_worker_decision(decision, reply)
 
-    async def _handle_references(self, reply: str, *, clear_history: bool) -> dict[str, Any]:
+    async def _handle_references(self, reply: str) -> dict[str, Any]:
         decision = await self.router.route_user_reply(self.state, reply)
         self.state.last_router_decision = decision.decision
 
@@ -259,11 +229,11 @@ class DataAgentSession:
             self.state.reference_artifact_ref = artifact_ref
             self.state.reference_summary = _compact_text(bundle, limit=12000)
             self.state.latest_feedback_artifact_ref = ""
-            return await self._run_plan_turn(clear_history=clear_history)
+            return await self._run_plan_turn()
 
-        return await self._handle_non_worker_decision(decision, reply, clear_history=clear_history)
+        return await self._handle_non_worker_decision(decision, reply)
 
-    async def _handle_plan_approval(self, reply: str, *, clear_history: bool) -> dict[str, Any]:
+    async def _handle_plan_approval(self, reply: str) -> dict[str, Any]:
         decision = await self.router.route_user_reply(self.state, reply)
         self.state.last_router_decision = decision.decision
 
@@ -276,18 +246,18 @@ class DataAgentSession:
             approved.status = "approved"
             self.state.approved_plan_version = approved.version
             self.state.latest_feedback_artifact_ref = ""
-            return await self._run_build_turn(clear_history=clear_history)
+            return await self._run_build_turn()
 
         if decision.decision == "revise_plan":
             self.state.latest_feedback_artifact_ref = self.artifacts.write_text(
                 f"feedback/plan_feedback_{self.next_call_id:03d}.md",
                 reply,
             )
-            return await self._run_plan_turn(clear_history=clear_history)
+            return await self._run_plan_turn()
 
-        return await self._handle_non_worker_decision(decision, reply, clear_history=clear_history)
+        return await self._handle_non_worker_decision(decision, reply)
 
-    async def _handle_build_review(self, reply: str, *, clear_history: bool) -> dict[str, Any]:
+    async def _handle_build_review(self, reply: str) -> dict[str, Any]:
         decision = await self.router.route_user_reply(self.state, reply)
         self.state.last_router_decision = decision.decision
 
@@ -302,11 +272,11 @@ class DataAgentSession:
                 f"feedback/build_feedback_{self.next_call_id:03d}.md",
                 reply,
             )
-            return await self._run_plan_turn(clear_history=clear_history)
+            return await self._run_plan_turn()
 
-        return await self._handle_non_worker_decision(decision, reply, clear_history=clear_history)
+        return await self._handle_non_worker_decision(decision, reply)
 
-    async def _run_plan_turn(self, *, clear_history: bool) -> dict[str, Any]:
+    async def _run_plan_turn(self) -> dict[str, Any]:
         self.workflow_stage = PLANNING
         self.active_turn_stage = "plan"
 
@@ -348,7 +318,7 @@ class DataAgentSession:
         plan.status = "proposed"
         return result.raw_response or _text_response(result.user_message)
 
-    async def _run_build_turn(self, *, clear_history: bool) -> dict[str, Any]:
+    async def _run_build_turn(self) -> dict[str, Any]:
         approved_plan = self.state.approved_plan
         if approved_plan is None:
             text = "当前还没有已批准的方案，无法开始创建和执行。"
@@ -398,14 +368,12 @@ class DataAgentSession:
         self,
         decision,
         reply: str,
-        *,
-        clear_history: bool,
     ) -> dict[str, Any]:
         if decision.decision == "switch_goal":
             self.state.reset()
             self.state.user_goal = decision.normalized_goal or reply
             self.state.normalized_goal = self.state.user_goal
-            return await self._run_existing_skill_turn(self.state.user_goal, clear_history=clear_history)
+            return await self._run_existing_skill_turn(self.state.user_goal)
 
         if decision.decision == "cancel":
             self.workflow_stage = CANCELLED
@@ -468,49 +436,6 @@ class DataAgentSession:
                     )
         self.state.last_assistant_text = text
         return _text_response(text)
-
-    def _preview_stage(self, query: str):
-        if self.workflow_stage in {IDLE, DISCOVERING}:
-            return (
-                self.existing_skill_agent.build_spec(runtime=self.runtime, state=self.state, query=query),
-                self.runtime,
-            )
-        if self.workflow_stage in {AWAIT_REFERENCES, PLANNING, AWAIT_PLAN_APPROVAL}:
-            previous_plan_text = ""
-            if self.state.current_plan is not None:
-                previous_plan_text = self.artifacts.read_text(self.state.current_plan.artifact_ref)
-            revision_feedback_text = ""
-            if self.state.latest_feedback_artifact_ref:
-                revision_feedback_text = self.artifacts.read_text(self.state.latest_feedback_artifact_ref)
-            return (
-                self.plan_agent.build_spec(
-                    runtime=self.runtime,
-                    state=self.state,
-                    previous_plan_text=previous_plan_text,
-                    revision_feedback_text=revision_feedback_text,
-                ),
-                self.runtime,
-            )
-        if self.workflow_stage in {BUILDING_AND_RUNNING, AWAIT_BUILD_REVIEW} and self.state.approved_plan is not None:
-            approved_plan_text = self.artifacts.read_text(self.state.approved_plan.artifact_ref)
-            draft = self.draft_manager.prepare_draft(
-                skill_slug=self.state.approved_plan.skill_slug or "generated-skill",
-                build_version=self.state.next_build_version(),
-            )
-            draft_runtime = self.draft_manager.build_runtime(base_runtime=self.runtime, draft=draft)
-            return (
-                self.build_run_agent.build_spec(
-                    runtime=draft_runtime,
-                    state=self.state,
-                    approved_plan=approved_plan_text,
-                    draft=draft,
-                ),
-                draft_runtime,
-            )
-        return (
-            self.existing_skill_agent.build_spec(runtime=self.runtime, state=self.state, query=query),
-            self.runtime,
-        )
 
     def _stage_session_id(self, stage_name: str) -> str:
         return f"{self.session_id}-call{self.next_call_id:03d}-{stage_name}"
@@ -713,22 +638,3 @@ def _compact_text(text: str, *, limit: int) -> str:
     if len(stripped) <= limit:
         return stripped
     return f"{stripped[: limit - 3].rstrip()}..."
-
-
-def _extract_reference_paths(text: str) -> list[Path]:
-    return extract_reference_paths(text)
-
-
-def _load_reference_sources_from_query(text: str) -> list[dict[str, str]]:
-    sources: list[dict[str, str]] = []
-    for path in extract_reference_paths(text):
-        try:
-            content = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-        sources.append({"path": str(path), "content": content})
-    return sources
-
-
-def _reset_ferry_singletons() -> None:
-    reset_ferry_singletons()

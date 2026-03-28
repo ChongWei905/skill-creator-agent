@@ -21,16 +21,23 @@ def extract_reference_paths(text: str) -> list[Path]:
     return found
 
 
-def build_reference_bundle(user_reply: str) -> str:
-    """Build a markdown bundle from referenced files and inline user notes."""
-    paths = extract_reference_paths(user_reply)
-    source_blocks: list[str] = []
-    for path in paths:
+def load_reference_sources(text: str) -> list[dict[str, str]]:
+    """Load referenced local files and return their resolved paths plus text content."""
+    sources: list[dict[str, str]] = []
+    for path in extract_reference_paths(text):
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             content = path.read_text(encoding="utf-8", errors="ignore")
-        source_blocks.append(f"## Source: {path}\n\n{content}")
+        sources.append({"path": str(path), "content": content})
+    return sources
+
+
+def build_reference_bundle(user_reply: str) -> str:
+    """Build a markdown bundle from referenced files and inline user notes."""
+    source_blocks: list[str] = []
+    for source in load_reference_sources(user_reply):
+        source_blocks.append(f"## Source: {source['path']}\n\n{source['content']}")
 
     inline_text = _strip_reference_paths(user_reply)
     if inline_text:

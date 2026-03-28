@@ -40,14 +40,13 @@ class StageRunner:
         user_id: str,
         stage_session_id: str,
         stage_output_path: Path,
-        clear_history: bool = True,
     ) -> StageExecutionResult:
         """Execute one stage through Ferry and return its response bundle."""
         data_agent = self.build_data_agent(spec=spec, runtime=runtime)
         response = await data_agent.chat(
             query,
             session_id=stage_session_id,
-            clear_history=clear_history,
+            clear_history=True,
             output_path=stage_output_path,
             initial_state={
                 "user_id": user_id,

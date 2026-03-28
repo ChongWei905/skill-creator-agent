@@ -10,9 +10,7 @@ from skill_creator_agent.data_agent_bridge import (
     DataAgentSession,
     _augment_build_review_message,
     _augment_build_response_with_final_result,
-    _extract_reference_paths,
     _extract_markdown_section,
-    _load_reference_sources_from_query,
     build_data_agent_session,
     extract_last_message_text,
     load_config_dict,
@@ -25,6 +23,7 @@ from skill_creator_agent.orchestration import (
     BUILDING_AND_RUNNING,
     DONE,
 )
+from skill_creator_agent.orchestration.references import extract_reference_paths, load_reference_sources
 from skill_creator_agent.orchestration.drafts import DraftSkillContext
 from skill_creator_agent.orchestration.models import BuildVersion, RouterDecision, StageResult
 from skill_creator_agent.orchestration.router import UnifiedRouter
@@ -146,7 +145,7 @@ def test_cli_parse_args_defaults():
 
 
 def test_extract_reference_paths_finds_existing_file():
-    paths = _extract_reference_paths(
+    paths = extract_reference_paths(
         "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
     )
 
@@ -155,7 +154,7 @@ def test_extract_reference_paths_finds_existing_file():
 
 
 def test_extract_reference_paths_recovers_missing_leading_slash():
-    paths = _extract_reference_paths(
+    paths = extract_reference_paths(
         "有文档，位置在Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
     )
 
@@ -164,7 +163,7 @@ def test_extract_reference_paths_recovers_missing_leading_slash():
 
 
 def test_load_reference_sources_from_query_reads_file_content():
-    sources = _load_reference_sources_from_query(
+    sources = load_reference_sources(
         "有文档，位置在/Users/weichong/Documents/new_working_area/skill-creator-agent/texts/banks.md"
     )
 
@@ -173,16 +172,17 @@ def test_load_reference_sources_from_query_reads_file_content():
     assert "本外币公司存款日均余额" in sources[0]["content"]
 
 
-def test_preview_turn_ferry_config_for_empty_discovery_has_no_local_tools(tmp_path):
+def test_preview_stage_config_for_empty_discovery_has_no_local_tools(tmp_path):
     session = _make_session(tmp_path)
+    spec = session.existing_skill_agent.build_spec(runtime=session.runtime, state=session.state, query="帮我查风险客户")
 
-    config = session.preview_turn_ferry_config("帮我查风险客户")
+    config = session.stage_runner.preview_config(spec=spec, runtime=session.runtime)
 
     assert "Current stage: existing_skill" in config["SCENARIO"]["chat"]["instructions"]
     assert config["TOOLS"]["local_functions"] == []
 
 
-def test_preview_turn_ferry_config_for_planning_uses_graph_tools_only(tmp_path):
+def test_preview_stage_config_for_planning_uses_graph_tools_only(tmp_path):
     session = build_data_agent_session(
         {
             **_minimal_model_config(),
@@ -198,8 +198,14 @@ def test_preview_turn_ferry_config_for_planning_uses_graph_tools_only(tmp_path):
     session.workflow_stage = AWAIT_REFERENCES
     session.state.user_goal = "帮我分析支行存款"
     session.state.reference_summary = "未提供参考资料。"
+    spec = session.plan_agent.build_spec(
+        runtime=session.runtime,
+        state=session.state,
+        previous_plan_text="",
+        revision_feedback_text="",
+    )
 
-    config = session.preview_turn_ferry_config("")
+    config = session.stage_runner.preview_config(spec=spec, runtime=session.runtime)
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
     assert "Current stage: planning" in config["SCENARIO"]["chat"]["instructions"]
@@ -208,7 +214,7 @@ def test_preview_turn_ferry_config_for_planning_uses_graph_tools_only(tmp_path):
     assert "create_skill_scaffold" not in tool_names
 
 
-def test_preview_turn_ferry_config_for_build_run_uses_minimal_build_tools(tmp_path):
+def test_preview_stage_config_for_build_run_uses_minimal_build_tools(tmp_path):
     session = _make_session(tmp_path)
     session.state.user_goal = "帮我分析深圳蛇口支行的本外币存款日均余额"
     plan_ref = session.artifacts.write_text("plans/plan_v01.md", "# 技能执行流程计划\n\n已批准方案")
@@ -221,8 +227,19 @@ def test_preview_turn_ferry_config_for_build_run_uses_minimal_build_tools(tmp_pa
     plan.status = "approved"
     session.state.approved_plan_version = plan.version
     session.workflow_stage = BUILDING_AND_RUNNING
+    draft = session.draft_manager.prepare_draft(
+        skill_slug=session.state.approved_plan.skill_slug or "generated-skill",
+        build_version=session.state.next_build_version(),
+    )
+    draft_runtime = session.draft_manager.build_runtime(base_runtime=session.runtime, draft=draft)
+    spec = session.build_run_agent.build_spec(
+        runtime=draft_runtime,
+        state=session.state,
+        approved_plan="# 技能执行流程计划\n\n已批准方案",
+        draft=draft,
+    )
 
-    config = session.preview_turn_ferry_config("")
+    config = session.stage_runner.preview_config(spec=spec, runtime=draft_runtime)
     tool_names = {tool["name"] for tool in config["TOOLS"]["local_functions"]}
 
     assert "Current stage: building_and_running" in config["SCENARIO"]["chat"]["instructions"]
@@ -257,7 +274,7 @@ def test_idle_turn_runs_existing_skill_agent_and_enters_create_confirmation(monk
     result = asyncio.run(session.ask("帮我查看有风险的客户"))
 
     assert "是否要创建" in extract_last_message_text(result)
-    assert session.user_goal == "帮我查看有风险的客户"
+    assert session.state.user_goal == "帮我查看有风险的客户"
     assert session.workflow_stage == AWAIT_CREATE_CONFIRMATION
 
 
