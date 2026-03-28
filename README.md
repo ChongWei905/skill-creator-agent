@@ -413,3 +413,44 @@ python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
 - draft skill 先执行再发布，正式 `skills/` 不直接承担试错过程
 - `PlanAgent` 输出的是面向用户确认的业务逻辑文档，不是内部实现规格书
 - `BuildRunAgent` 负责技术修复闭环，但当用户认为业务逻辑不对时，会回退到方案修订，而不是继续在错误实现上硬改
+
+## TODO
+
+与 Anthropic 风格的 skill 渐进式披露机制进一步对齐：
+
+- 让第一层全局 skill 上下文尽量收敛到 frontmatter 级信息，避免默认暴露过多脚本细节
+- 把 `SKILL.md` 正文从“加载 skill 时即读入内存”进一步收口为真正按需读取
+- 为 `references/`、`assets/` 等补充标准化加载和按需导航能力，形成更清晰的第三层资源结构
+- 让 `create_skill_scaffold(...)` 能按这种分层结构生成更贴近渐进式披露规范的 skill 包骨架
+
+重构 Ferry 工具注册与授权模型，减少静态硬编码并为后续权限系统做准备：
+
+- 当前工具暴露面分散在多个位置维护：
+  - `skill_creator_agent.ferry_tools` 中定义 Python 工具函数
+  - `skill_creator_agent.ferry_config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
+  - `skill_creator_agent.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
+- 当前设计虽然安全、显式、默认关闭，但存在几个明确问题：
+  - 新增一个工具后，通常需要同时修改函数实现、Ferry 工具声明、stage 白名单，维护点分散
+  - `ferry_config.py` 与 `toolsets.py` 之间没有单一事实来源，后续容易出现“工具已实现但未注册”或“已注册但某阶段永远不可见”的状态漂移
+  - 未来如果引入用户级权限、租户级权限、环境开关或风险分级，基于纯工具名静态列表的过滤方式表达力不够
+  - 当前工具元信息不足，缺少 capability、风险级别、默认启用状态、适用 stage、是否依赖 graph 等可用于动态授权的结构化字段
+- 目标形态应当是一个统一的 Tool Catalog，而不是多处散落的静态工具名集合：
+  - 每个工具条目至少描述 `name`、`module`、`function`
+  - 还应补充 `capabilities`，例如 `skill.read`、`skill.execute`、`graph.read`、`file.write`
+  - 还应补充 `risk_level`、`default_enabled`、`supported_stages`、`requires_graph` 等字段
+- stage 暴露工具时，不应再直接依赖大量手写工具名集合，而应由以下条件动态求交：
+  - 工具是否存在于 catalog
+  - 当前运行环境是否满足该工具前置条件，例如 graph 是否开启
+  - 当前 stage 是否允许该 capability
+  - 当前用户/租户/会话是否具备该工具或 capability 的权限
+- 重构完成后，新增工具的理想接入成本应降为：
+  - 实现工具函数
+  - 在统一 catalog 中登记一次元信息
+  - 如有必要，仅声明其 capability 或 stage 适配策略
+  - 不再要求开发者同时手改多个静态白名单文件
+- 在真正开始这项改造前，先输出一版明确设计：
+  - Tool Catalog 数据结构
+  - capability 枚举
+  - stage 到 capability 的映射规则
+  - 权限系统接入点
+  - `ferry_config` 最终如何从 catalog 动态 materialize 出 `TOOLS.local_functions`
