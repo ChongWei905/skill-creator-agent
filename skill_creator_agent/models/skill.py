@@ -37,7 +37,6 @@ class SkillScript:
         run_cwd = cwd.resolve() if cwd else self.infer_default_cwd()
         if self.language == "python":
             pythonpath_entries = [
-                str(project_path("src")),
                 str(project_path()),
                 str(run_cwd),
             ]

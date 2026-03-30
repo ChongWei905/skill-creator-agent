@@ -58,10 +58,10 @@
 
 在当前代码里，这些能力主要落在：
 
-- `src/skill_creator_agent/orchestration/stage_runner.py`
-- `src/skill_creator_agent/ferry_integration/config.py`
-- `src/skill_creator_agent/ferry_integration/tools.py`
-- `src/skill_creator_agent/ferry_integration/runtime_reset.py`
+- `skill_creator_agent/orchestration/stage_runner.py`
+- `skill_creator_agent/ferry_integration/config.py`
+- `skill_creator_agent/ferry_integration/tools.py`
+- `skill_creator_agent/ferry_integration/runtime_reset.py`
 
 其中有一个实现细节很重要：
 
@@ -115,7 +115,7 @@ flowchart TD
 
 这些状态定义在：
 
-- `src/skill_creator_agent/orchestration/models.py`
+- `skill_creator_agent/orchestration/models.py`
 
 ## 各阶段职责
 
@@ -130,7 +130,7 @@ flowchart TD
 
 对应代码：
 
-- `src/skill_creator_agent/orchestration/stages/existing_skill.py`
+- `skill_creator_agent/orchestration/stages/existing_skill.py`
 
 ### 2. PlanAgent
 
@@ -152,8 +152,8 @@ flowchart TD
 
 对应代码：
 
-- `src/skill_creator_agent/orchestration/stages/plan.py`
-- `src/skill_creator_agent/prompts/stage_context_plan_agent.md`
+- `skill_creator_agent/orchestration/stages/plan.py`
+- `skill_creator_agent/prompts/stage_context_plan_agent.md`
 
 ### 3. BuildRunAgent
 
@@ -175,8 +175,8 @@ flowchart TD
 
 对应代码：
 
-- `src/skill_creator_agent/orchestration/stages/build_run.py`
-- `src/skill_creator_agent/prompts/stage_context_build_run.md`
+- `skill_creator_agent/orchestration/stages/build_run.py`
+- `skill_creator_agent/prompts/stage_context_build_run.md`
 
 ## UnifiedRouter 设计
 
@@ -209,8 +209,8 @@ flowchart TD
 
 对应代码和 prompt：
 
-- `src/skill_creator_agent/orchestration/router.py`
-- `src/skill_creator_agent/prompts/unified_router.md`
+- `skill_creator_agent/orchestration/router.py`
+- `skill_creator_agent/prompts/unified_router.md`
 
 ## 为什么先写到 `.tmp/.../drafts`，不是直接写到 `skills/`
 
@@ -231,7 +231,7 @@ flowchart TD
 
 对应代码：
 
-- `src/skill_creator_agent/orchestration/drafts.py`
+- `skill_creator_agent/orchestration/drafts.py`
 
 ## 上下文交接方式
 
@@ -258,27 +258,27 @@ flowchart TD
 
 核心实现：
 
-- `src/skill_creator_agent/orchestration/session.py`
-- `src/skill_creator_agent/orchestration/models.py`
+- `skill_creator_agent/orchestration/session.py`
+- `skill_creator_agent/orchestration/models.py`
 
 ## Prompt Surface
 
 当前真正参与新架构的 prompt 主要有：
 
-- `src/skill_creator_agent/prompts/stage_context_existing_skill.md`
-- `src/skill_creator_agent/prompts/stage_context_plan_agent.md`
-- `src/skill_creator_agent/prompts/stage_context_build_run.md`
-- `src/skill_creator_agent/prompts/unified_router.md`
+- `skill_creator_agent/prompts/stage_context_existing_skill.md`
+- `skill_creator_agent/prompts/stage_context_plan_agent.md`
+- `skill_creator_agent/prompts/stage_context_build_run.md`
+- `skill_creator_agent/prompts/unified_router.md`
 
 另外，runtime 层仍然保留了一部分基础 prompt，用于 skill/runtime 通用行为：
 
-- `src/skill_creator_agent/prompts/system_prompt_base.md`
-- `src/skill_creator_agent/prompts/system_prompt_direct_query.md`
-- `src/skill_creator_agent/prompts/skill_creation_workflow.md`
-- `src/skill_creator_agent/prompts/no_skill_fallback.md`
-- `src/skill_creator_agent/prompts/no_skill_fallback_direct.md`
-- `src/skill_creator_agent/prompts/skill_execution_reminder.md`
-- `src/skill_creator_agent/prompts/graph_connector_python_contract.md`
+- `skill_creator_agent/prompts/system_prompt_base.md`
+- `skill_creator_agent/prompts/system_prompt_direct_query.md`
+- `skill_creator_agent/prompts/skill_creation_workflow.md`
+- `skill_creator_agent/prompts/no_skill_fallback.md`
+- `skill_creator_agent/prompts/no_skill_fallback_direct.md`
+- `skill_creator_agent/prompts/skill_execution_reminder.md`
+- `skill_creator_agent/prompts/graph_connector_python_contract.md`
 
 ## 目录结构
 
@@ -286,23 +286,22 @@ flowchart TD
 .
 ├── config.yaml.example
 ├── skills/
-├── src/
-│   ├── connectors/
-│   └── skill_creator_agent/
-│       ├── ferry_integration/
-│       │   ├── config.py
-│       │   ├── runtime_reset.py
-│       │   └── tools.py
-│       ├── orchestration/
-│       │   ├── stages/
-│       │   ├── drafts.py
-│       │   ├── models.py
-│       │   ├── router.py
-│       │   ├── session.py
-│       │   └── stage_runner.py
-│       ├── prompts/
-│       ├── main.py
-│       └── runtime.py
+├── connectors/
+├── skill_creator_agent/
+│   ├── ferry_integration/
+│   │   ├── config.py
+│   │   ├── runtime_reset.py
+│   │   └── tools.py
+│   ├── orchestration/
+│   │   ├── stages/
+│   │   ├── drafts.py
+│   │   ├── models.py
+│   │   ├── router.py
+│   │   ├── session.py
+│   │   └── stage_runner.py
+│   ├── prompts/
+│   ├── main.py
+│   └── runtime.py
 ├── tests/
 ```
 
@@ -419,7 +418,7 @@ python -m pytest tests/skill_creator/test_session.py -q
 - 分析阶段 agent 调用的工具和运行时 skill 调用的代码应该如何分层
 - 哪些能力属于内部实现，哪些能力属于对 skill 作者公开承诺的稳定接口
 
-当前 `src/connectors` 这类兼容壳虽然能工作，但不适合作为长期模式继续扩张。后续如果再加入更多可供 skill 调用的能力模块，例如输出格式化、缓存、文件处理、业务 helper，如果仍然沿用“内部模块旁再做一个镜像桥接层”的方式，维护成本会越来越高，暴露面也会越来越混乱。
+当前 `connectors` 这类兼容壳虽然能工作，但不适合作为长期模式继续扩张。后续如果再加入更多可供 skill 调用的能力模块，例如输出格式化、缓存、文件处理、业务 helper，如果仍然沿用“内部模块旁再做一个镜像桥接层”的方式，维护成本会越来越高，暴露面也会越来越混乱。
 
 目标结构应当是明确分成几层：
 
@@ -449,7 +448,7 @@ python -m pytest tests/skill_creator/test_session.py -q
 
 - agent 调工具，skill 调 SDK，二者共享底层 capability 实现，但不共享同一个 import surface
 - 新生成的 skill 不再直接 import `skill_creator_agent.*`、`orchestration.*`、`ferry_integration.*`
-- `src/connectors` 这类兼容壳进入明确的 deprecated 生命周期，后续逐步迁出
+- `connectors` 这类兼容壳进入明确的 deprecated 生命周期，后续逐步迁出
 
 在真正动手前，应先定清楚：
 

@@ -10,7 +10,7 @@ def package_root() -> Path:
 
 def project_root() -> Path:
     """Return the repository root directory."""
-    return package_root().parents[1]
+    return package_root().parent
 
 
 def package_path(*parts: str) -> Path:

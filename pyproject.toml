@@ -20,7 +20,8 @@ dev = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["skill_creator_agent*", "connectors*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
