@@ -411,41 +411,106 @@ python -m pytest tests/skill_creator/test_session.py -q
 
 ## TODO
 
-与 Anthropic 风格的 skill 渐进式披露机制进一步对齐：
+### 1. 引入稳定的 Skill SDK 与共享能力层
+
+这项应当优先于后面的渐进式披露和 Tool Catalog 改造，因为它决定了：
+
+- 生成的 skill 代码应该 import 什么
+- 分析阶段 agent 调用的工具和运行时 skill 调用的代码应该如何分层
+- 哪些能力属于内部实现，哪些能力属于对 skill 作者公开承诺的稳定接口
+
+当前 `src/connectors` 这类兼容壳虽然能工作，但不适合作为长期模式继续扩张。后续如果再加入更多可供 skill 调用的能力模块，例如输出格式化、缓存、文件处理、业务 helper，如果仍然沿用“内部模块旁再做一个镜像桥接层”的方式，维护成本会越来越高，暴露面也会越来越混乱。
+
+目标结构应当是明确分成几层：
+
+- Core capabilities
+  - 放真正的能力实现，例如 graph 访问、skill registry、环境配置读取、结果写出等
+  - 这一层是内部实现，不直接作为生成 skill 的 import surface
+- Agent tool adapters
+  - 供分析阶段 agent、创建阶段 agent、执行阶段 agent 通过 Ferry tools 调用
+  - 重点是 JSON-friendly 接口、参数正规化、tool schema 适配
+- Public Skill SDK
+  - 供生成出来的 skill 脚本直接 import
+  - 这应当是一个稳定、刻意收敛、长期兼容的公开 API 面
+  - 例如未来应更倾向于 `from skill_sdk.graph import GraphClient` 这类显式公共接口，而不是继续依赖 `from connectors import GraphConnector`
+- Orchestration / runtime
+  - 负责把配置、依赖和运行上下文注入给上面两层
+  - 不应让 skill 脚本直接依赖 orchestration 或 Ferry 内部细节
+
+后续新能力接入时，应先判断它属于哪个暴露面：
+
+- `agent_only`
+- `skill_sdk_only`
+- `shared`
+
+而不是默认同时暴露给工具调用和 skill 脚本。
+
+这项改造完成后，希望达到的效果是：
+
+- agent 调工具，skill 调 SDK，二者共享底层 capability 实现，但不共享同一个 import surface
+- 新生成的 skill 不再直接 import `skill_creator_agent.*`、`orchestration.*`、`ferry_integration.*`
+- `src/connectors` 这类兼容壳进入明确的 deprecated 生命周期，后续逐步迁出
+
+在真正动手前，应先定清楚：
+
+- 公共 Skill SDK 的目录结构
+- 每个 capability 属于哪个暴露面
+- prompt 中允许生成 skill 使用哪些稳定 import
+- 兼容层的迁移策略和废弃节奏
+
+### 2. 与 Anthropic 风格的 skill 渐进式披露机制进一步对齐
+
+这项排在 Skill SDK 之后，因为 skill 包结构、`SKILL.md` 组织方式以及脚手架输出，最好建立在已经明确的公共 SDK 和能力边界之上。
 
 - 让第一层全局 skill 上下文尽量收敛到 frontmatter 级信息，避免默认暴露过多脚本细节
 - 把 `SKILL.md` 正文从“加载 skill 时即读入内存”进一步收口为真正按需读取
 - 为 `references/`、`assets/` 等补充标准化加载和按需导航能力，形成更清晰的第三层资源结构
 - 让 `create_skill_scaffold(...)` 能按这种分层结构生成更贴近渐进式披露规范的 skill 包骨架
 
-重构 Ferry 工具注册与授权模型，减少静态硬编码并为后续权限系统做准备：
+### 3. 重构 Ferry 工具注册与授权模型
 
-- 当前工具暴露面分散在多个位置维护：
-  - `skill_creator_agent.ferry_integration.tools` 中定义 Python 工具函数
-  - `skill_creator_agent.ferry_integration.config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
-  - `skill_creator_agent.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
-- 当前设计虽然安全、显式、默认关闭，但存在几个明确问题：
-  - 新增一个工具后，通常需要同时修改函数实现、Ferry 工具声明、stage 白名单，维护点分散
-  - `ferry_integration/config.py` 与 `toolsets.py` 之间没有单一事实来源，后续容易出现“工具已实现但未注册”或“已注册但某阶段永远不可见”的状态漂移
-  - 未来如果引入用户级权限、租户级权限、环境开关或风险分级，基于纯工具名静态列表的过滤方式表达力不够
-  - 当前工具元信息不足，缺少 capability、风险级别、默认启用状态、适用 stage、是否依赖 graph 等可用于动态授权的结构化字段
-- 目标形态应当是一个统一的 Tool Catalog，而不是多处散落的静态工具名集合：
-  - 每个工具条目至少描述 `name`、`module`、`function`
-  - 还应补充 `capabilities`，例如 `skill.read`、`skill.execute`、`graph.read`、`file.write`
-  - 还应补充 `risk_level`、`default_enabled`、`supported_stages`、`requires_graph` 等字段
-- stage 暴露工具时，不应再直接依赖大量手写工具名集合，而应由以下条件动态求交：
-  - 工具是否存在于 catalog
-  - 当前运行环境是否满足该工具前置条件，例如 graph 是否开启
-  - 当前 stage 是否允许该 capability
-  - 当前用户/租户/会话是否具备该工具或 capability 的权限
-- 重构完成后，新增工具的理想接入成本应降为：
-  - 实现工具函数
-  - 在统一 catalog 中登记一次元信息
-  - 如有必要，仅声明其 capability 或 stage 适配策略
-  - 不再要求开发者同时手改多个静态白名单文件
-- 在真正开始这项改造前，先输出一版明确设计：
-  - Tool Catalog 数据结构
-  - capability 枚举
-  - stage 到 capability 的映射规则
-  - 权限系统接入点
-  - `ferry_integration/config` 最终如何从 catalog 动态 materialize 出 `TOOLS.local_functions`
+这项排在第三位，因为它更适合建立在前两项已经明确之后：
+
+- 先知道哪些能力通过 Skill SDK 对 skill 公开，哪些能力只保留在 agent tools
+- 再基于稳定 capability 模型去做 Tool Catalog、stage 过滤和权限控制
+
+当前工具暴露面分散在多个位置维护：
+
+- `skill_creator_agent.ferry_integration.tools` 中定义 Python 工具函数
+- `skill_creator_agent.ferry_integration.config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
+- `skill_creator_agent.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
+
+当前设计虽然安全、显式、默认关闭，但存在几个明确问题：
+
+- 新增一个工具后，通常需要同时修改函数实现、Ferry 工具声明、stage 白名单，维护点分散
+- `ferry_integration/config.py` 与 `toolsets.py` 之间没有单一事实来源，后续容易出现“工具已实现但未注册”或“已注册但某阶段永远不可见”的状态漂移
+- 未来如果引入用户级权限、租户级权限、环境开关或风险分级，基于纯工具名静态列表的过滤方式表达力不够
+- 当前工具元信息不足，缺少 capability、风险级别、默认启用状态、适用 stage、是否依赖 graph 等可用于动态授权的结构化字段
+
+目标形态应当是一个统一的 Tool Catalog，而不是多处散落的静态工具名集合：
+
+- 每个工具条目至少描述 `name`、`module`、`function`
+- 还应补充 `capabilities`，例如 `skill.read`、`skill.execute`、`graph.read`、`file.write`
+- 还应补充 `risk_level`、`default_enabled`、`supported_stages`、`requires_graph` 等字段
+
+stage 暴露工具时，不应再直接依赖大量手写工具名集合，而应由以下条件动态求交：
+
+- 工具是否存在于 catalog
+- 当前运行环境是否满足该工具前置条件，例如 graph 是否开启
+- 当前 stage 是否允许该 capability
+- 当前用户、租户或当前会话是否具备该工具或 capability 的权限
+
+重构完成后，新增工具的理想接入成本应降为：
+
+- 实现工具函数
+- 在统一 catalog 中登记一次元信息
+- 如有必要，仅声明其 capability 或 stage 适配策略
+- 不再要求开发者同时手改多个静态白名单文件
+
+在真正开始这项改造前，先输出一版明确设计：
+
+- Tool Catalog 数据结构
+- capability 枚举
+- stage 到 capability 的映射规则
+- 权限系统接入点
+- `ferry_integration/config` 最终如何从 catalog 动态 materialize 出 `TOOLS.local_functions`
