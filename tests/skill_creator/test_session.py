@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import skill_creator_agent.data_agent_bridge as bridge_module
+import skill_creator_agent.orchestration.session as session_module
 
-from skill_creator_agent.cli import parse_args
-from skill_creator_agent.data_agent_bridge import (
+from skill_creator_agent.main import parse_args
+from skill_creator_agent.orchestration.session import (
     DataAgentSession,
     _augment_build_review_message,
     _augment_build_response_with_final_result,
@@ -82,7 +82,7 @@ def test_load_config_dict_reads_yaml_file(tmp_path):
 
 
 def test_load_config_dict_merges_mapping_over_default_config(monkeypatch):
-    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG", Path("/tmp/missing-config.yaml"))
+    monkeypatch.setattr(session_module, "DEFAULT_VERIFICATION_CONFIG", Path("/tmp/missing-config.yaml"))
     config = load_config_dict(
         {
             **_minimal_model_config(),
@@ -99,7 +99,7 @@ def test_load_config_dict_merges_mapping_over_default_config(monkeypatch):
 def test_load_config_dict_uses_empty_defaults_when_config_yaml_is_missing(monkeypatch, tmp_path):
     missing_config = tmp_path / "config.yaml"
 
-    monkeypatch.setattr(bridge_module, "DEFAULT_VERIFICATION_CONFIG", missing_config)
+    monkeypatch.setattr(session_module, "DEFAULT_VERIFICATION_CONFIG", missing_config)
 
     resolved = load_config_dict()
 
@@ -648,7 +648,7 @@ def test_accept_build_promotes_draft_skill(tmp_path):
 
 def test_route_user_reply_uses_llm_path_for_create_confirmation(monkeypatch):
     router = UnifiedRouter("skill_creator_chat")
-    state = bridge_module.SessionState(
+    state = session_module.SessionState(
         workflow_stage=AWAIT_CREATE_CONFIRMATION,
         last_question_type="create_confirmation",
         user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
@@ -677,7 +677,7 @@ def test_route_user_reply_uses_llm_path_for_create_confirmation(monkeypatch):
 
 def test_route_worker_result_uses_llm_path_for_existing_skill_prompt(monkeypatch):
     router = UnifiedRouter("skill_creator_chat")
-    state = bridge_module.SessionState(
+    state = session_module.SessionState(
         workflow_stage="DISCOVERING",
         last_question_type="none",
         user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",

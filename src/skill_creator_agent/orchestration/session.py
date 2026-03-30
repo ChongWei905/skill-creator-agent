@@ -8,7 +8,7 @@ from typing import Any, Mapping
 import yaml
 from ferry.interface.sdk.agent import DataAgent
 
-from skill_creator_agent.ferry_tools import configure_runtime_tools
+from skill_creator_agent.ferry_integration.tools import configure_runtime_tools
 from skill_creator_agent.orchestration import (
     AWAIT_BUILD_REVIEW,
     AWAIT_CREATE_CONFIRMATION,

@@ -9,7 +9,7 @@ SRC_ROOT_TEXT = str(SRC_ROOT)
 if SRC_ROOT_TEXT not in sys.path:
     sys.path.insert(0, SRC_ROOT_TEXT)
 
-from skill_creator_agent.entrypoint import main
+from skill_creator_agent.main import main
 
 
 if __name__ == "__main__":

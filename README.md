@@ -59,9 +59,9 @@
 在当前代码里，这些能力主要落在：
 
 - `src/skill_creator_agent/orchestration/stage_runner.py`
-- `src/skill_creator_agent/ferry_config.py`
-- `src/skill_creator_agent/ferry_tools.py`
-- `src/skill_creator_agent/orchestration/ferry.py`
+- `src/skill_creator_agent/ferry_integration/config.py`
+- `src/skill_creator_agent/ferry_integration/tools.py`
+- `src/skill_creator_agent/ferry_integration/runtime_reset.py`
 
 其中有一个实现细节很重要：
 
@@ -258,7 +258,7 @@ flowchart TD
 
 核心实现：
 
-- `src/skill_creator_agent/data_agent_bridge.py`
+- `src/skill_creator_agent/orchestration/session.py`
 - `src/skill_creator_agent/orchestration/models.py`
 
 ## Prompt Surface
@@ -289,18 +289,19 @@ flowchart TD
 ├── src/
 │   ├── connectors/
 │   └── skill_creator_agent/
+│       ├── ferry_integration/
+│       │   ├── config.py
+│       │   ├── runtime_reset.py
+│       │   └── tools.py
 │       ├── orchestration/
 │       │   ├── stages/
 │       │   ├── drafts.py
-│       │   ├── ferry.py
 │       │   ├── models.py
 │       │   ├── router.py
+│       │   ├── session.py
 │       │   └── stage_runner.py
 │       ├── prompts/
-│       ├── cli.py
-│       ├── data_agent_bridge.py
-│       ├── ferry_config.py
-│       ├── ferry_tools.py
+│       ├── main.py
 │       └── runtime.py
 ├── tests/
 ```
@@ -344,12 +345,6 @@ cp config.yaml.example config.yaml
 
 ```bash
 python scripts/skill_creator_chat.py
-```
-
-如果你当前使用的 Python 环境已经安装了本项目，也可以直接运行模块入口：
-
-```bash
-python -m skill_creator_agent
 ```
 
 常用显式参数示例：
@@ -402,7 +397,7 @@ python -m pytest -q
 如果只想跑核心多轮编排测试：
 
 ```bash
-python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
+python -m pytest tests/skill_creator/test_session.py -q
 ```
 
 ## 当前边界
@@ -426,12 +421,12 @@ python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
 重构 Ferry 工具注册与授权模型，减少静态硬编码并为后续权限系统做准备：
 
 - 当前工具暴露面分散在多个位置维护：
-  - `skill_creator_agent.ferry_tools` 中定义 Python 工具函数
-  - `skill_creator_agent.ferry_config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
+  - `skill_creator_agent.ferry_integration.tools` 中定义 Python 工具函数
+  - `skill_creator_agent.ferry_integration.config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
   - `skill_creator_agent.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
 - 当前设计虽然安全、显式、默认关闭，但存在几个明确问题：
   - 新增一个工具后，通常需要同时修改函数实现、Ferry 工具声明、stage 白名单，维护点分散
-  - `ferry_config.py` 与 `toolsets.py` 之间没有单一事实来源，后续容易出现“工具已实现但未注册”或“已注册但某阶段永远不可见”的状态漂移
+  - `ferry_integration/config.py` 与 `toolsets.py` 之间没有单一事实来源，后续容易出现“工具已实现但未注册”或“已注册但某阶段永远不可见”的状态漂移
   - 未来如果引入用户级权限、租户级权限、环境开关或风险分级，基于纯工具名静态列表的过滤方式表达力不够
   - 当前工具元信息不足，缺少 capability、风险级别、默认启用状态、适用 stage、是否依赖 graph 等可用于动态授权的结构化字段
 - 目标形态应当是一个统一的 Tool Catalog，而不是多处散落的静态工具名集合：
@@ -453,4 +448,4 @@ python -m pytest tests/skill_creator/test_data_agent_bridge.py -q
   - capability 枚举
   - stage 到 capability 的映射规则
   - 权限系统接入点
-  - `ferry_config` 最终如何从 catalog 动态 materialize 出 `TOOLS.local_functions`
+  - `ferry_integration/config` 最终如何从 catalog 动态 materialize 出 `TOOLS.local_functions`

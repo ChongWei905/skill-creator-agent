@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from skill_creator_agent.runtime import SkillCreatorRuntime
-from skill_creator_agent.tool_argument_normalizer import (
+from skill_creator_agent.ferry_integration.argument_normalizer import (
     normalize_bool,
     normalize_cli_arguments,
     normalize_int,
@@ -28,11 +28,13 @@ def configure_runtime_tools(
 
 
 def reset_runtime_tools() -> None:
+    """Clear the globally bound runtime used by Ferry local functions."""
     global _ACTIVE_RUNTIME
     _ACTIVE_RUNTIME = None
 
 
 def get_runtime_tools() -> SkillCreatorRuntime:
+    """Return the active runtime, creating one from config on first access."""
     global _ACTIVE_RUNTIME
     if _ACTIVE_RUNTIME is None:
         _ACTIVE_RUNTIME = SkillCreatorRuntime.from_config()

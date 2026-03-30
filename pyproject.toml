@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-skill-creator-chat = "skill_creator_agent.entrypoint:main"
+skill-creator-chat = "skill_creator_agent.main:main"
 
 [project.optional-dependencies]
 dev = [

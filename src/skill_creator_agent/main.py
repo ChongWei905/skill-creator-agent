@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import json
+import sys
 from typing import Any
 
-from skill_creator_agent.data_agent_bridge import (
-    DEFAULT_VERIFICATION_CONFIG,
-    build_data_agent_session,
-    extract_last_message_text,
-)
 from skill_creator_agent.paths import project_path
+
+DEFAULT_CONFIG_PATH = project_path("config.yaml")
+DEFAULT_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config",
-        default=str(DEFAULT_VERIFICATION_CONFIG),
+        default=str(DEFAULT_CONFIG_PATH),
         help="Base skill_creator config YAML. Uses project config.yaml when present.",
     )
     parser.add_argument(
@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-root",
-        default=str(project_path(".tmp", "data_agent_multiturn")),
+        default=str(DEFAULT_OUTPUT_ROOT),
         help="Directory root used for Ferry run outputs.",
     )
     parser.add_argument(
@@ -83,8 +83,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return build_parser().parse_args(argv)
 
 
+def main(argv: list[str] | None = None) -> int:
+    """Run the synchronous CLI entrypoint."""
+    _ensure_ferry_importable()
+    return asyncio.run(async_main(argv))
+
+
 async def async_main(argv: list[str] | None = None) -> int:
     """Run the async CLI entrypoint."""
+    from skill_creator_agent.orchestration.session import build_data_agent_session
+
     args = parse_args(argv)
     session = build_data_agent_session(
         args.config,
@@ -157,12 +165,34 @@ async def async_main(argv: list[str] | None = None) -> int:
         await _run_turn(session, user_input, show_state_json=args.show_state_json)
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Run the synchronous CLI entrypoint."""
-    return asyncio.run(async_main(argv))
+def _ensure_ferry_importable() -> None:
+    """Ensure Ferry is installed in the current Python environment."""
+    if _can_import_ferry():
+        return
+
+    raise RuntimeError(
+        "Ferry is not available in the current Python environment. "
+        "Install Ferry into this interpreter before starting the CLI."
+    )
+
+
+def _can_import_ferry() -> bool:
+    """Return whether the current interpreter can import Ferry and its dependencies."""
+    try:
+        importlib.import_module("ferry.interface.sdk.agent")
+        return True
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("ferry"):
+            return False
+        raise RuntimeError(
+            "Ferry is present in the current Python environment, but a required dependency is missing: "
+            f"{exc.name}. Install Ferry dependencies in this interpreter first."
+        ) from exc
 
 
 async def _run_turn(session: Any, query: str, *, show_state_json: bool) -> None:
+    from skill_creator_agent.orchestration.session import extract_last_message_text
+
     print(
         f"\n[run_id={session.next_run_id}] sending..."
         f" (workflow_stage={session.workflow_stage}, active_turn_stage={session.active_turn_stage})"
