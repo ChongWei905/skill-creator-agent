@@ -4,12 +4,15 @@ import argparse
 import asyncio
 import importlib
 import json
+import logging
+import sys
 from typing import Any
 
 from skill_creator_agent.paths import project_path
 
 DEFAULT_CONFIG_PATH = project_path("config.yaml")
 DEFAULT_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")
+logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +95,7 @@ async def async_main(argv: list[str] | None = None) -> int:
     """Run the async CLI entrypoint."""
     from skill_creator_agent.orchestration.session import build_data_agent_session
 
+    _configure_logging()
     args = parse_args(argv)
     session = build_data_agent_session(
         args.config,
@@ -105,45 +109,49 @@ async def async_main(argv: list[str] | None = None) -> int:
         materialized_config_path=args.materialized_config,
     )
 
-    print("Skill Creator DataAgent CLI")
-    print(f"- ferry config: {session.ferry_config_path}")
-    print(f"- session_id:   {session.session_id}")
-    print(f"- output_path:  {session.output_path}")
-    print(f"- skills_root:  {session.runtime.settings.skills_root}")
-    print(f"- graph:        {'enabled' if session.runtime.settings.graph_enabled else 'disabled'}")
+    logger.info("Skill Creator DataAgent CLI")
+    logger.info("- ferry config: %s", session.ferry_config_path)
+    logger.info("- session_id:   %s", session.session_id)
+    logger.info("- output_path:  %s", session.output_path)
+    logger.info("- skills_root:  %s", session.runtime.settings.skills_root)
+    logger.info(
+        "- graph:        %s",
+        "enabled" if session.runtime.settings.graph_enabled else "disabled",
+    )
     if session.runtime.settings.graph_enabled:
-        print(f"- graph_url:    {session.runtime.settings.graph_base_url}")
-    print("")
+        logger.info("- graph_url:    %s", session.runtime.settings.graph_base_url)
+    logger.info("")
 
     if args.turn:
         for turn in args.turn:
             await _run_turn(session, turn, show_state_json=args.show_state_json)
         return 0
 
-    print("Commands: /skills, /config, /stage, /reset, /help, /quit")
+    logger.info("Commands: /skills, /config, /stage, /reset, /help, /quit")
     while True:
         try:
             user_input = input("\nYou> ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nBye.")
+            logger.info("\nBye.")
             return 0
 
         if not user_input:
             continue
         if user_input == "/quit":
-            print("Bye.")
+            logger.info("Bye.")
             return 0
         if user_input == "/help":
-            print("Commands: /skills, /config, /stage, /reset, /help, /quit")
+            logger.info("Commands: /skills, /config, /stage, /reset, /help, /quit")
             continue
         if user_input == "/skills":
-            print(json.dumps(session.runtime.list_skills(), ensure_ascii=False, indent=2))
+            logger.info("%s", json.dumps(session.runtime.list_skills(), ensure_ascii=False, indent=2))
             continue
         if user_input == "/config":
-            print(session.ferry_config_path)
+            logger.info("%s", session.ferry_config_path)
             continue
         if user_input == "/stage":
-            print(
+            logger.info(
+                "%s",
                 json.dumps(
                     {
                         "workflow_stage": session.workflow_stage,
@@ -151,14 +159,14 @@ async def async_main(argv: list[str] | None = None) -> int:
                     },
                     ensure_ascii=False,
                     indent=2,
-                )
+                ),
             )
             continue
         if user_input == "/reset":
             previous = session.session_id
             session.reset()
-            print(f"Session reset: {previous} -> {session.session_id}")
-            print(f"New output_path: {session.output_path}")
+            logger.info("Session reset: %s -> %s", previous, session.session_id)
+            logger.info("New output_path: %s", session.output_path)
             continue
 
         await _run_turn(session, user_input, show_state_json=args.show_state_json)
@@ -189,23 +197,40 @@ def _can_import_ferry() -> bool:
         ) from exc
 
 
+def _configure_logging() -> None:
+    """Configure plain-text CLI logging for interactive terminal output."""
+    if logger.handlers:
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        return
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
 async def _run_turn(session: Any, query: str, *, show_state_json: bool) -> None:
     from skill_creator_agent.orchestration.session import extract_last_message_text
 
-    print(
-        f"\n[run_id={session.next_run_id}] sending..."
-        f" (workflow_stage={session.workflow_stage}, active_turn_stage={session.active_turn_stage})"
+    logger.info(
+        "\n[run_id=%s] sending... (workflow_stage=%s, active_turn_stage=%s)",
+        session.next_run_id,
+        session.workflow_stage,
+        session.active_turn_stage,
     )
     response = await session.ask(query)
-    print("\nAssistant>\n")
-    print(extract_last_message_text(response))
-    print(
-        f"\n[state] workflow_stage={session.workflow_stage}, "
-        f"active_turn_stage={session.active_turn_stage}"
+    logger.info("\nAssistant>\n")
+    logger.info("%s", extract_last_message_text(response))
+    logger.info(
+        "\n[state] workflow_stage=%s, active_turn_stage=%s",
+        session.workflow_stage,
+        session.active_turn_stage,
     )
     if show_state_json:
-        print("\nFull state>\n")
-        print(json.dumps(_json_safe(response), ensure_ascii=False, indent=2))
+        logger.info("\nFull state>\n")
+        logger.info("%s", json.dumps(_json_safe(response), ensure_ascii=False, indent=2))
 
 
 def _json_safe(data: Any) -> Any:
