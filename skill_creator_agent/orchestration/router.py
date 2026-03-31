@@ -247,8 +247,16 @@ class UnifiedRouter:
             ),
             state_digest=json.dumps(state.state_digest(), ensure_ascii=False, indent=2),
             latest_user_reply=latest_user_reply or "(none)",
-            worker_result=json.dumps(worker_result, ensure_ascii=False, indent=2) if worker_result else "(none)",
-            reference_intake=json.dumps(reference_intake, ensure_ascii=False, indent=2) if reference_intake else "(none)",
+            worker_result=(
+                json.dumps(worker_result, ensure_ascii=False, indent=2)
+                if worker_result
+                else "(none)"
+            ),
+            reference_intake=(
+                json.dumps(reference_intake, ensure_ascii=False, indent=2)
+                if reference_intake
+                else "(none)"
+            ),
         )
         response = await llm.ainvoke(
             [{"role": "system", "content": prompt}],
