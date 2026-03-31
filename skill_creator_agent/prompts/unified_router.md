@@ -24,6 +24,9 @@ Latest user reply:
 Worker result:
 {worker_result}
 
+Reference intake summary:
+{reference_intake}
+
 Routing rules:
 - Respect the current state and last question type. Do not infer transitions outside the allowed lists.
 - If the user is clearly agreeing, choose the matching approval decision.
@@ -33,6 +36,10 @@ Routing rules:
 - If the user is providing change requests instead of approval, choose `revise_plan`.
 - If the user is answering a different problem than the current goal, choose `switch_goal`.
 - If the reply is ambiguous, incomplete, or does not answer the current question, choose `clarify`.
+- In the references state, use the reference intake summary as the source of truth for whether files were found and whether inline reference text is already usable.
+- In the references state, if readable files or substantial inline reference text already exist, choose `provide_references`.
+- In the references state, if the user is clearly saying there are no references, choose `no_references`.
+- In the references state, if the user appears to be trying to provide references but the file paths are missing, unreadable, or the content is still incomplete, choose `clarify_references`.
 - For `worker_result` events, prefer the most direct transition implied by the worker result.
 - When the existing-skill worker message is asking whether to create a new skill, route to `need_create_confirmation`.
 - When the existing-skill worker message already answers the user goal, route to `task_answered`.

@@ -23,7 +23,14 @@ from skill_creator_agent.prompts import UNIFIED_ROUTER, load_prompt
 
 ALLOWED_USER_DECISIONS: dict[str, tuple[str, ...]] = {
     AWAIT_CREATE_CONFIRMATION: ("confirm_create", "decline_create", "switch_goal", "clarify", "cancel"),
-    AWAIT_REFERENCES: ("provide_references", "no_references", "switch_goal", "clarify", "cancel"),
+    AWAIT_REFERENCES: (
+        "provide_references",
+        "no_references",
+        "clarify_references",
+        "switch_goal",
+        "clarify",
+        "cancel",
+    ),
     AWAIT_PLAN_APPROVAL: ("approve_plan", "revise_plan", "switch_goal", "clarify", "cancel"),
     AWAIT_BUILD_REVIEW: ("accept_build", "revise_plan", "switch_goal", "clarify", "cancel"),
 }
@@ -39,6 +46,7 @@ USER_NEXT_STATES: dict[str, dict[str, str]] = {
     AWAIT_REFERENCES: {
         "provide_references": PLANNING,
         "no_references": PLANNING,
+        "clarify_references": AWAIT_REFERENCES,
         "switch_goal": IDLE,
         "clarify": AWAIT_REFERENCES,
         "cancel": CANCELLED,
@@ -114,7 +122,7 @@ class UnifiedRouter:
         goal_action = raw.get("goal_action")
         feedback_action = raw.get("feedback_action")
         question_action = raw.get("question_action")
-        return RouterDecision(
+        router_decision = RouterDecision(
             decision=decision,
             next_state=next_state,
             confidence=float(raw.get("confidence", 0) or 0),
@@ -125,14 +133,24 @@ class UnifiedRouter:
             next_question_type=str((question_action or {}).get("next_question_type", "none")).strip() or "none",
             reuse_previous_plan=bool((question_action or {}).get("reuse_previous_plan", False)),
         )
+        if router_decision.next_question_type == "none":
+            router_decision.next_question_type = _decision_question_type(decision)
+        return router_decision
 
-    async def route_user_reply(self, state: SessionState, reply: str) -> RouterDecision:
+    async def route_user_reply(
+        self,
+        state: SessionState,
+        reply: str,
+        *,
+        reference_intake: dict[str, Any] | None = None,
+    ) -> RouterDecision:
         """Route one user reply from the current workflow state into the next state."""
         allowed = ALLOWED_USER_DECISIONS.get(state.workflow_stage)
         if not allowed:
             return RouterDecision(decision="clarify", next_state=state.workflow_stage, needs_clarification=True)
 
         next_states = [USER_NEXT_STATES[state.workflow_stage][item] for item in allowed]
+        fallback_decision = "clarify_references" if state.workflow_stage == AWAIT_REFERENCES else "clarify"
         raw = await self._invoke_router(
             event_type="user_reply",
             state=state,
@@ -140,11 +158,12 @@ class UnifiedRouter:
             allowed_next_states=next_states,
             latest_user_reply=reply,
             worker_result={},
+            reference_intake=reference_intake,
         )
         return self._normalize_router_output(
             raw,
             fallback_state=state.workflow_stage,
-            fallback_decision="clarify",
+            fallback_decision=fallback_decision,
             allowed_decisions=set(allowed),
             allowed_states=set(next_states),
         )
@@ -180,6 +199,7 @@ class UnifiedRouter:
                     "result_code": result_code,
                     "assistant_text": assistant_text,
                 },
+                reference_intake=None,
             )
             return self._normalize_router_output(
                 raw,
@@ -205,6 +225,7 @@ class UnifiedRouter:
         allowed_next_states: tuple[str, ...] | list[str],
         latest_user_reply: str,
         worker_result: dict[str, Any],
+        reference_intake: dict[str, Any] | None,
     ) -> dict[str, Any]:
         llm = llm_manager.get_llm(self.model_name)
         if llm is None:
@@ -227,6 +248,7 @@ class UnifiedRouter:
             state_digest=json.dumps(state.state_digest(), ensure_ascii=False, indent=2),
             latest_user_reply=latest_user_reply or "(none)",
             worker_result=json.dumps(worker_result, ensure_ascii=False, indent=2) if worker_result else "(none)",
+            reference_intake=json.dumps(reference_intake, ensure_ascii=False, indent=2) if reference_intake else "(none)",
         )
         response = await llm.ainvoke(
             [{"role": "system", "content": prompt}],
@@ -254,6 +276,7 @@ def _decision_question_type(decision: str) -> str:
         "need_create_confirmation": "create_confirmation",
         "plan_ready": "plan_approval",
         "build_ready_for_review": "build_review",
+        "clarify_references": "references_request",
         "clarify": "clarification",
     }
     return mapping.get(decision, "none")

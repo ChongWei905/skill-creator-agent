@@ -23,7 +23,12 @@ from skill_creator_agent.orchestration import (
     BUILDING_AND_RUNNING,
     DONE,
 )
-from skill_creator_agent.orchestration.references import extract_reference_paths, load_reference_sources
+from skill_creator_agent.orchestration.references import (
+    build_reference_clarification_message,
+    extract_reference_paths,
+    intake_references,
+    load_reference_sources,
+)
 from skill_creator_agent.orchestration.drafts import DraftSkillContext
 from skill_creator_agent.orchestration.models import BuildVersion, RouterDecision, StageResult
 from skill_creator_agent.orchestration.router import UnifiedRouter
@@ -170,6 +175,25 @@ def test_load_reference_sources_from_query_reads_file_content():
     assert len(sources) == 1
     assert sources[0]["path"].endswith("banks.md")
     assert "本外币公司存款日均余额" in sources[0]["content"]
+
+
+def test_intake_references_marks_missing_windows_path_for_clarification():
+    intake = intake_references(r"有文档，位置在D:\bank.md")
+
+    assert intake.raw_path_candidates == [r"D:\bank.md"]
+    assert intake.resolved_sources == []
+    assert intake.missing_paths == [r"D:\bank.md"]
+    assert intake.needs_clarification is True
+    assert intake.clarification_reason == "path_not_found"
+
+
+def test_build_reference_clarification_message_mentions_missing_paths():
+    intake = intake_references(r"有文档，位置在D:\bank.md")
+
+    message = build_reference_clarification_message(intake)
+
+    assert r"D:\bank.md" in message
+    assert "请确认路径是否写错了" in message
 
 
 def test_preview_stage_config_for_empty_discovery_has_no_local_tools(tmp_path):
@@ -342,7 +366,7 @@ def test_reference_answer_runs_plan_agent_and_records_plan(monkeypatch, tmp_path
     session.state.user_goal = "帮我分析支行存款"
     session.state.last_question_type = "references_request"
 
-    async def fake_route_user_reply(state, reply):
+    async def fake_route_user_reply(state, reply, *, reference_intake=None):
         return RouterDecision(
             decision="no_references",
             next_state="PLANNING",
@@ -381,6 +405,81 @@ def test_reference_answer_runs_plan_agent_and_records_plan(monkeypatch, tmp_path
     assert session.workflow_stage == AWAIT_PLAN_APPROVAL
     assert session.state.current_plan is not None
     assert session.state.current_plan.skill_slug == "branch-deposit-analysis"
+
+
+def test_reference_missing_path_stays_in_reference_gate(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.workflow_stage = AWAIT_REFERENCES
+    session.state.user_goal = "帮我分析支行存款"
+    session.state.last_question_type = "references_request"
+
+    async def fake_route_user_reply(state, reply, *, reference_intake=None):
+        assert reference_intake is not None
+        assert reference_intake["missing_paths"] == [r"D:\bank.md"]
+        assert reference_intake["needs_clarification"] is True
+        return RouterDecision(
+            decision="clarify_references",
+            next_state=AWAIT_REFERENCES,
+            confidence=1.0,
+            next_question_type="references_request",
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    result = asyncio.run(session.ask(r"有文档，位置在D:\bank.md"))
+
+    assert "没有找到可读取的文件" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_REFERENCES
+    assert session.active_turn_stage == "ask_references"
+
+
+def test_reference_inline_text_can_proceed_to_planning(monkeypatch, tmp_path):
+    session = _make_session(tmp_path)
+    session.workflow_stage = AWAIT_REFERENCES
+    session.state.user_goal = "帮我分析支行存款"
+    session.state.last_question_type = "references_request"
+
+    async def fake_route_user_reply(state, reply, *, reference_intake=None):
+        assert reference_intake is not None
+        assert reference_intake["has_readable_reference"] is True
+        assert "趋势分析" in reference_intake["inline_reference_text"]
+        return RouterDecision(
+            decision="provide_references",
+            next_state="PLANNING",
+            confidence=1.0,
+        )
+
+    session.router.route_user_reply = fake_route_user_reply
+
+    async def fake_run(**kwargs):
+        return (
+            StageResult(
+                stage_name="plan",
+                result_code="plan_ready",
+                user_message=(
+                    "# 技能执行流程计划\n\n"
+                    "**技能名称**: branch-deposit-analysis\n"
+                    "**描述**: 查询支行存款并做趋势分析\n\n"
+                    "## 所需图数据库实体\n- Organ\n\n"
+                    "## 执行步骤\n- step 1\n\n"
+                    "## 最终输出格式\n{}\n\n"
+                    "## 示例执行\n- demo\n\n"
+                    "## 重要说明\n- note\n\n"
+                    "## 本版相对上一版的修改\n- 初始版本\n\n"
+                    "是否按这个方案创建并执行？"
+                ),
+                metadata={"skill_name": "branch-deposit-analysis", "skill_slug": "branch-deposit-analysis"},
+            ),
+            object(),
+        )
+
+    monkeypatch.setattr(session.plan_agent, "run", fake_run)
+
+    result = asyncio.run(session.ask("文档要点：趋势分析、结构分析、同业对比、关联分析。"))
+
+    assert "技能执行流程计划" in extract_last_message_text(result)
+    assert session.workflow_stage == AWAIT_PLAN_APPROVAL
+    assert "趋势分析" in session.state.reference_summary
 
 
 def test_plan_revision_runs_plan_agent_again_and_versions_history(monkeypatch, tmp_path):
@@ -672,6 +771,45 @@ def test_route_user_reply_uses_llm_path_for_create_confirmation(monkeypatch):
     decision = asyncio.run(router.route_user_reply(state, "创建，但先按深圳分行口径来"))
 
     assert decision.decision == "confirm_create"
+    assert decision.next_state == AWAIT_REFERENCES
+
+
+def test_route_user_reply_passes_reference_intake_summary(monkeypatch):
+    router = UnifiedRouter("skill_creator_chat")
+    state = session_module.SessionState(
+        workflow_stage=AWAIT_REFERENCES,
+        last_question_type="references_request",
+        user_goal="帮我分析深圳蛇口支行的本外币存款日均余额",
+    )
+
+    async def fake_invoke_router(**kwargs):
+        assert kwargs["event_type"] == "user_reply"
+        assert kwargs["reference_intake"]["missing_paths"] == [r"D:\bank.md"]
+        return {
+            "decision": "clarify_references",
+            "next_state": AWAIT_REFERENCES,
+            "confidence": 0.83,
+            "needs_clarification": True,
+            "goal_action": {"type": "none", "normalized_goal": ""},
+            "feedback_action": {"type": "none", "summary": ""},
+            "question_action": {"next_question_type": "references_request", "reuse_previous_plan": False},
+        }
+
+    monkeypatch.setattr(router, "_invoke_router", fake_invoke_router)
+
+    decision = asyncio.run(
+        router.route_user_reply(
+            state,
+            r"有文档，位置在D:\bank.md",
+            reference_intake={
+                "missing_paths": [r"D:\bank.md"],
+                "needs_clarification": True,
+                "has_readable_reference": False,
+            },
+        )
+    )
+
+    assert decision.decision == "clarify_references"
     assert decision.next_state == AWAIT_REFERENCES
 
 

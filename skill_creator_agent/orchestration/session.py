@@ -29,7 +29,9 @@ from skill_creator_agent.orchestration import (
     SessionState,
     StageRunner,
     UnifiedRouter,
+    build_reference_clarification_message,
     build_reference_bundle,
+    intake_references,
 )
 from skill_creator_agent.paths import project_path
 from skill_creator_agent.runtime import SkillCreatorRuntime
@@ -217,11 +219,25 @@ class DataAgentSession:
         return await self._handle_non_worker_decision(decision, reply)
 
     async def _handle_references(self, reply: str) -> dict[str, Any]:
-        decision = await self.router.route_user_reply(self.state, reply)
+        intake = intake_references(reply)
+        decision = await self.router.route_user_reply(
+            self.state,
+            reply,
+            reference_intake={
+                "raw_path_candidates": intake.raw_path_candidates,
+                "resolved_paths": [source.path for source in intake.resolved_sources],
+                "missing_paths": intake.missing_paths,
+                "inline_reference_text": intake.inline_reference_text,
+                "explicit_no_references": intake.explicit_no_references,
+                "has_readable_reference": intake.has_readable_reference,
+                "needs_clarification": intake.needs_clarification,
+                "clarification_reason": intake.clarification_reason,
+            },
+        )
         self.state.last_router_decision = decision.decision
 
-        if decision.decision in {"provide_references", "no_references"}:
-            bundle = "未提供参考资料。" if decision.decision == "no_references" else build_reference_bundle(reply)
+        if decision.decision == "provide_references":
+            bundle = build_reference_bundle(intake)
             artifact_ref = self.artifacts.write_text(
                 f"references/reference_bundle_{self.next_call_id:03d}.md",
                 bundle,
@@ -230,6 +246,25 @@ class DataAgentSession:
             self.state.reference_summary = _compact_text(bundle, limit=12000)
             self.state.latest_feedback_artifact_ref = ""
             return await self._run_plan_turn()
+
+        if decision.decision == "no_references":
+            bundle = "未提供参考资料。"
+            artifact_ref = self.artifacts.write_text(
+                f"references/reference_bundle_{self.next_call_id:03d}.md",
+                bundle,
+            )
+            self.state.reference_artifact_ref = artifact_ref
+            self.state.reference_summary = bundle
+            self.state.latest_feedback_artifact_ref = ""
+            return await self._run_plan_turn()
+
+        if decision.decision == "clarify_references":
+            self.workflow_stage = AWAIT_REFERENCES
+            self.active_turn_stage = "ask_references"
+            self.state.last_question_type = "references_request"
+            text = build_reference_clarification_message(intake)
+            self.state.last_assistant_text = text
+            return _text_response(text)
 
         return await self._handle_non_worker_decision(decision, reply)
 
