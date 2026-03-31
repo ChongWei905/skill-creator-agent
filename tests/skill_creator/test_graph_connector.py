@@ -112,3 +112,25 @@ def test_graph_connector_property_filter_rejects_and_inside_single_expression():
 
     with pytest.raises(ValueError):
         connector.property_filter("Organ", "NODE", {"name": "CONTAINS '深圳' AND CONTAINS '罗湖'"})
+
+
+def test_graph_connector_build_request_url_appends_configured_suffix():
+    connector = GraphConnector(base_url="http://example.com", url_suffix="?scene_name=gonghang")
+
+    assert (
+        connector.build_request_url("/api/v1/search/get_object_types")
+        == "http://example.com/api/v1/search/get_object_types?scene_name=gonghang"
+    )
+
+
+def test_graph_connector_reads_suffix_from_environment(monkeypatch):
+    monkeypatch.setenv("GRAPH_DB_URL_SUFFIX", "scene_name=gonghang")
+
+    connector = GraphConnector(base_url="http://example.com")
+
+    assert connector.url_suffix == "?scene_name=gonghang"
+    assert (
+        connector.build_request_url("/api/v1/search/get_object_types")
+        == "http://example.com/api/v1/search/get_object_types?scene_name=gonghang"
+    )
+    monkeypatch.delenv("GRAPH_DB_URL_SUFFIX", raising=False)

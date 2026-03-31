@@ -120,6 +120,8 @@ async def async_main(argv: list[str] | None = None) -> int:
     )
     if session.runtime.settings.graph_enabled:
         logger.info("- graph_url:    %s", session.runtime.settings.graph_base_url)
+        if session.runtime.settings.graph_url_suffix:
+            logger.info("- graph_suffix: %s", session.runtime.settings.graph_url_suffix)
     logger.info("")
 
     if args.turn:

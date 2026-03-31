@@ -9,6 +9,7 @@ from skill_creator_agent.paths import project_path, resolve_local_path
 
 ENV_SKILLS_ROOT = "SKILL_CREATOR_SKILLS_ROOT"
 ENV_GRAPH_BASE_URL = "SKILL_CREATOR_GRAPH_BASE_URL"
+ENV_GRAPH_URL_SUFFIX = "SKILL_CREATOR_GRAPH_URL_SUFFIX"
 ENV_GRAPH_TIMEOUT = "SKILL_CREATOR_GRAPH_TIMEOUT"
 DEFAULT_SKILLS_ROOT = project_path("skills")
 DEFAULT_GRAPH_BASE_URL = "http://127.0.0.1:8000"
@@ -20,6 +21,7 @@ class SkillCreatorSettings:
     skills_root: Path
     graph_enabled: bool = False
     graph_base_url: str = DEFAULT_GRAPH_BASE_URL
+    graph_url_suffix: str = ""
     graph_timeout: int = DEFAULT_GRAPH_TIMEOUT
     source: str = "default"
 
@@ -29,16 +31,19 @@ def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> S
     section = _extract_section(config)
     graph_enabled = _as_bool(section.get("graph_enabled"), default=False)
     graph_base_url = str(section.get("graph_base_url") or DEFAULT_GRAPH_BASE_URL).rstrip("/")
+    graph_url_suffix = _normalize_graph_url_suffix(section.get("graph_url_suffix"))
     graph_timeout = _as_int(section.get("graph_timeout"), default=DEFAULT_GRAPH_TIMEOUT)
 
     env_root = os.getenv(ENV_SKILLS_ROOT)
     env_graph_base_url = os.getenv(ENV_GRAPH_BASE_URL)
+    env_graph_url_suffix = os.getenv(ENV_GRAPH_URL_SUFFIX)
     env_graph_timeout = os.getenv(ENV_GRAPH_TIMEOUT)
     if env_root:
         return SkillCreatorSettings(
             skills_root=_normalize_skills_root(env_root),
             graph_enabled=graph_enabled,
             graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+            graph_url_suffix=_normalize_graph_url_suffix(env_graph_url_suffix or graph_url_suffix),
             graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
             source="env",
         )
@@ -49,6 +54,7 @@ def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> S
             skills_root=_normalize_skills_root(config_root),
             graph_enabled=graph_enabled,
             graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+            graph_url_suffix=_normalize_graph_url_suffix(env_graph_url_suffix or graph_url_suffix),
             graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
             source="config",
         )
@@ -57,6 +63,7 @@ def resolve_skill_creator_settings(config: Mapping[str, Any] | None = None) -> S
         skills_root=DEFAULT_SKILLS_ROOT.resolve(),
         graph_enabled=graph_enabled,
         graph_base_url=(env_graph_base_url or graph_base_url).rstrip("/"),
+        graph_url_suffix=_normalize_graph_url_suffix(env_graph_url_suffix or graph_url_suffix),
         graph_timeout=_as_int(env_graph_timeout, default=graph_timeout),
         source="default",
     )
@@ -77,6 +84,8 @@ def _extract_section(config: Mapping[str, Any] | None) -> dict[str, Any]:
         section["graph_enabled"] = config.get("SKILL_CREATOR.graph_enabled")
     if "SKILL_CREATOR.graph_base_url" in config and "graph_base_url" not in section:
         section["graph_base_url"] = config.get("SKILL_CREATOR.graph_base_url")
+    if "SKILL_CREATOR.graph_url_suffix" in config and "graph_url_suffix" not in section:
+        section["graph_url_suffix"] = config.get("SKILL_CREATOR.graph_url_suffix")
     if "SKILL_CREATOR.graph_timeout" in config and "graph_timeout" not in section:
         section["graph_timeout"] = config.get("SKILL_CREATOR.graph_timeout")
     return section
@@ -101,6 +110,17 @@ def _as_bool(value: Any, *, default: bool) -> bool:
         if normalized in {"0", "false", "no", "off"}:
             return False
     return bool(value)
+
+
+def _normalize_graph_url_suffix(value: Any) -> str:
+    if value is None:
+        return ""
+    normalized = str(value).strip()
+    if not normalized:
+        return ""
+    if normalized.startswith(("?", "&")):
+        return normalized
+    return f"?{normalized}"
 
 
 def _as_int(value: Any, *, default: int) -> int:

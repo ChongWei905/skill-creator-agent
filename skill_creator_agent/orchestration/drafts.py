@@ -39,6 +39,7 @@ class DraftSkillManager:
                 "skills_root": str(draft.draft_root),
                 "graph_enabled": base_runtime.settings.graph_enabled,
                 "graph_base_url": base_runtime.settings.graph_base_url,
+                "graph_url_suffix": base_runtime.settings.graph_url_suffix,
                 "graph_timeout": base_runtime.settings.graph_timeout,
             }
         }

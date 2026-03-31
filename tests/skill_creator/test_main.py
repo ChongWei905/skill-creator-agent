@@ -71,6 +71,7 @@ def test_async_main_preserves_config_backed_graph_settings_when_flags_are_omitte
                 skills_root="skills-from-config",
                 graph_enabled=True,
                 graph_base_url="http://127.0.0.1:9999",
+                graph_url_suffix="",
             )
         )
 
@@ -141,6 +142,7 @@ def test_async_main_disables_graph_only_when_flag_is_present(monkeypatch):
                 skills_root="skills-from-config",
                 graph_enabled=False,
                 graph_base_url="http://127.0.0.1:9999",
+                graph_url_suffix="",
             )
         )
 

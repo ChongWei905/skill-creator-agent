@@ -278,6 +278,7 @@ def _build_default_ferry_config(
             "skills_root": str(runtime.settings.skills_root),
             "graph_enabled": runtime.settings.graph_enabled,
             "graph_base_url": runtime.settings.graph_base_url,
+            "graph_url_suffix": runtime.settings.graph_url_suffix,
             "graph_timeout": runtime.settings.graph_timeout,
         },
     }
@@ -318,6 +319,7 @@ def _normalize_ferry_config(
     skill_creator_cfg["skills_root"] = str(runtime.settings.skills_root)
     skill_creator_cfg["graph_enabled"] = runtime.settings.graph_enabled
     skill_creator_cfg["graph_base_url"] = runtime.settings.graph_base_url
+    skill_creator_cfg["graph_url_suffix"] = runtime.settings.graph_url_suffix
     skill_creator_cfg["graph_timeout"] = runtime.settings.graph_timeout
     normalized["SKILL_CREATOR"] = skill_creator_cfg
 

@@ -139,7 +139,7 @@ def test_extract_last_message_text_handles_dict_and_fallback():
 def test_cli_parse_args_defaults():
     args = parse_args([])
 
-    assert args.graph_base_url == "http://127.0.0.1:8000"
+    assert args.graph_base_url is None
     assert args.turn == []
     assert args.disable_graph is False
 

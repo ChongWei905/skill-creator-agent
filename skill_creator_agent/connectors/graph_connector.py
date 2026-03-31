@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from functools import lru_cache
 from typing import Any
@@ -10,10 +11,11 @@ from urllib import error, request
 class GraphConnector:
     """HTTP connector for the graph service used by workflow-svc style tools."""
 
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(self, base_url: str, timeout: int = 30, url_suffix: str | None = None):
         """Initialize a graph connector bound to one HTTP service endpoint."""
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.url_suffix = self._normalize_url_suffix(url_suffix)
 
     @staticmethod
     def close() -> None:
@@ -32,6 +34,17 @@ class GraphConnector:
             else:
                 normalized.append(name)
         return normalized
+
+    @staticmethod
+    def _normalize_url_suffix(url_suffix: str | None) -> str:
+        if url_suffix is None:
+            url_suffix = os.getenv("GRAPH_DB_URL_SUFFIX", "")
+        normalized = str(url_suffix).strip()
+        if not normalized:
+            return ""
+        if normalized.startswith(("?", "&")):
+            return normalized
+        return f"?{normalized}"
 
     @staticmethod
     def _normalize_filter_atom(atom: str) -> str:
@@ -305,8 +318,12 @@ class GraphConnector:
         )
         return results[:limit]
 
+    def build_request_url(self, path: str) -> str:
+        """Build the effective graph request URL for one API path."""
+        return f"{self.base_url}{path}{self.url_suffix}"
+
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
-        url = f"{self.base_url}{path}"
+        url = self.build_request_url(path)
         data = None
         headers = {"Content-Type": "application/json"}
         if payload is not None:

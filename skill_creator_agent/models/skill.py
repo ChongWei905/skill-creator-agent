@@ -32,6 +32,7 @@ class SkillScript:
             run_env.update({str(key): str(value) for key, value in env.items()})
         if graph_db_config:
             run_env["GRAPH_DB_BASE_URL"] = str(graph_db_config.get("base_url", "http://localhost:8080"))
+            run_env["GRAPH_DB_URL_SUFFIX"] = str(graph_db_config.get("url_suffix", ""))
             run_env["GRAPH_DB_TIMEOUT"] = str(graph_db_config.get("timeout", 30))
 
         run_cwd = cwd.resolve() if cwd else self.infer_default_cwd()

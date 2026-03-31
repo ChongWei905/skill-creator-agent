@@ -50,6 +50,7 @@ def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
                 "skills_root": str(tmp_path / "temp-skill-root"),
                 "graph_enabled": True,
                 "graph_base_url": "http://127.0.0.1:8000",
+                "graph_url_suffix": "?scene_name=gonghang",
                 "graph_timeout": 45,
             }
         }
@@ -71,6 +72,7 @@ def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
                 "print(json.dumps({\n"
                 "    'connector_class': connector.__class__.__name__,\n"
                 "    'base_url': connector.base_url,\n"
+                "    'url_suffix': connector.url_suffix,\n"
                 "    'timeout': connector.timeout,\n"
                 "}, ensure_ascii=False))\n"
             )
@@ -83,6 +85,7 @@ def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
     assert result["exit_code"] == 0
     assert '"connector_class": "GraphConnector"' in result["stdout"]
     assert '"base_url": "http://127.0.0.1:8000"' in result["stdout"]
+    assert '"url_suffix": "?scene_name=gonghang"' in result["stdout"]
     assert '"timeout": 45' in result["stdout"]
     assert "Traceback" not in result["stderr"]
     assert "ImportError" not in result["stderr"]

@@ -159,6 +159,7 @@ class SkillCreatorRuntime:
         """Return the graph connection settings exposed to generated scripts."""
         return {
             "base_url": self.settings.graph_base_url,
+            "url_suffix": self.settings.graph_url_suffix,
             "timeout": self.settings.graph_timeout,
         }
 
@@ -170,6 +171,7 @@ class SkillCreatorRuntime:
             self._graph_connector = GraphConnector(
                 base_url=self.settings.graph_base_url,
                 timeout=self.settings.graph_timeout,
+                url_suffix=self.settings.graph_url_suffix,
             )
         return self._graph_connector
 
