@@ -30,21 +30,6 @@ class SkillCreatorRuntime:
         self._graph_connector: GraphConnector | None = None
 
     @staticmethod
-    def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
-        """Render canonical SKILL.md content from frontmatter and body text."""
-        frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
-        rendered_body = body.strip() or "# Skill\n\nDescribe the workflow and execution steps for this skill."
-        return f"---\n{frontmatter_text}\n---\n\n{rendered_body}\n"
-
-    @staticmethod
-    def _resolve_script_path(scripts_dir: Path, relative_path: str) -> Path:
-        """Resolve one script path while enforcing that it stays under scripts/."""
-        candidate = (scripts_dir / relative_path).resolve()
-        if not candidate.is_relative_to(scripts_dir.resolve()):
-            raise ValueError(f"Script path must stay within scripts/: {relative_path}")
-        return candidate
-
-    @staticmethod
     def build_missing_skill_prompt(*, direct_query: bool = False) -> str:
         """Render the fallback prompt used when no existing skill is a fit."""
         prompt_name = NO_SKILL_FALLBACK_DIRECT if direct_query else NO_SKILL_FALLBACK
@@ -67,6 +52,21 @@ class SkillCreatorRuntime:
                 for script in skill.scripts
             ],
         }
+
+    @staticmethod
+    def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
+        """Render canonical SKILL.md content from frontmatter and body text."""
+        frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
+        rendered_body = body.strip() or "# Skill\n\nDescribe the workflow and execution steps for this skill."
+        return f"---\n{frontmatter_text}\n---\n\n{rendered_body}\n"
+
+    @staticmethod
+    def _resolve_script_path(scripts_dir: Path, relative_path: str) -> Path:
+        """Resolve one script path while enforcing that it stays under scripts/."""
+        candidate = (scripts_dir / relative_path).resolve()
+        if not candidate.is_relative_to(scripts_dir.resolve()):
+            raise ValueError(f"Script path must stay within scripts/: {relative_path}")
+        return candidate
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None = None) -> "SkillCreatorRuntime":

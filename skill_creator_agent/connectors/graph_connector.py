@@ -16,6 +16,14 @@ class GraphConnector:
         self.timeout = timeout
 
     @staticmethod
+    def close() -> None:
+        """Close the connector interface.
+
+        The current HTTP implementation is stateless, so there is nothing to release.
+        """
+        return None
+
+    @staticmethod
     def _normalize_return_vars(return_vars: list[str]) -> list[str]:
         normalized: list[str] = []
         for name in return_vars:
@@ -60,14 +68,6 @@ class GraphConnector:
             return str(element_type), "NODE"
 
         return element_class, "NODE"
-
-    @staticmethod
-    def close() -> None:
-        """Close the connector interface.
-
-        The current HTTP implementation is stateless, so there is nothing to release.
-        """
-        return None
 
     @classmethod
     def _normalize_filter_dict(cls, filter_dict: dict[str, Any] | None) -> dict[str, str]:
