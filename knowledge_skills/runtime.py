@@ -5,10 +5,10 @@ from typing import Any, Mapping
 
 import yaml
 
-from skill_creator_agent.connectors import GraphConnector
-from skill_creator_agent.loaders import SkillLoader
-from skill_creator_agent.models import Skill
-from skill_creator_agent.prompts import (
+from knowledge_skills.connectors import GraphConnector
+from knowledge_skills.loaders import SkillLoader
+from knowledge_skills.models import Skill
+from knowledge_skills.prompts import (
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,
     NO_SKILL_FALLBACK_DIRECT,
@@ -18,7 +18,7 @@ from skill_creator_agent.prompts import (
     SYSTEM_PROMPT_DIRECT_QUERY,
     load_prompt,
 )
-from skill_creator_agent.settings import SkillCreatorSettings, resolve_skill_creator_settings
+from knowledge_skills.settings import SkillCreatorSettings, resolve_skill_creator_settings
 
 
 class SkillCreatorRuntime:

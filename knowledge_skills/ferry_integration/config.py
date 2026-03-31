@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 import yaml
 
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 DEFAULT_CHAT_MAX_TOKENS = 4096
 
@@ -36,37 +36,37 @@ DEFAULT_RUNTIME_TOOLS: list[dict[str, Any]] = [
     {
         "name": "list_available_skills",
         "function": "list_available_skills",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "read_skill_content",
         "function": "read_skill_content",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "list_skill_scripts",
         "function": "list_skill_scripts",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "read_script_source",
         "function": "read_script_source",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "execute_skill_script",
         "function": "execute_skill_script",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "reload_skill",
         "function": "reload_skill",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "create_skill_scaffold",
         "function": "create_skill_scaffold",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
 ]
 
@@ -74,57 +74,57 @@ DEFAULT_GRAPH_TOOLS: list[dict[str, Any]] = [
     {
         "name": "graph_get_object_types",
         "function": "graph_get_object_types",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_get_object_relations",
         "function": "graph_get_object_relations",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_get_entity_schema",
         "function": "graph_get_entity_schema",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_query_examples",
         "function": "graph_query_examples",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_property_filter",
         "function": "graph_property_filter",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_property_info",
         "function": "graph_property_info",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_hop_search",
         "function": "graph_hop_search",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_count_search",
         "function": "graph_count_search",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_aggregate_search",
         "function": "graph_aggregate_search",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_sorted_search",
         "function": "graph_sorted_search",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
     {
         "name": "graph_pattern_search",
         "function": "graph_pattern_search",
-        "module": "skill_creator_agent.ferry_integration.tools",
+        "module": "knowledge_skills.ferry_integration.tools",
     },
 ]
 

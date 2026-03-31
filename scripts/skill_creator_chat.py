@@ -8,7 +8,7 @@ REPO_ROOT_TEXT = str(REPO_ROOT)
 if REPO_ROOT_TEXT not in sys.path:
     sys.path.append(REPO_ROOT_TEXT)
 
-from skill_creator_agent.main import main
+from knowledge_skills.main import main
 
 
 if __name__ == "__main__":

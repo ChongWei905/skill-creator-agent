@@ -5,7 +5,7 @@ from typing import Any
 
 from ferry.core.managers.llm_manager import llm_manager
 
-from skill_creator_agent.orchestration.models import (
+from knowledge_skills.orchestration.models import (
     AWAIT_BUILD_REVIEW,
     AWAIT_CREATE_CONFIRMATION,
     AWAIT_PLAN_APPROVAL,
@@ -19,7 +19,7 @@ from skill_creator_agent.orchestration.models import (
     RouterDecision,
     SessionState,
 )
-from skill_creator_agent.prompts import UNIFIED_ROUTER, load_prompt
+from knowledge_skills.prompts import UNIFIED_ROUTER, load_prompt
 
 ALLOWED_USER_DECISIONS: dict[str, tuple[str, ...]] = {
     AWAIT_CREATE_CONFIRMATION: ("confirm_create", "decline_create", "switch_goal", "clarify", "cancel"),

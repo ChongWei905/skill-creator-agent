@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import re
 
-from skill_creator_agent.orchestration.drafts import DraftSkillContext, DraftSkillManager
-from skill_creator_agent.orchestration.models import BuildVersion, SessionState, StageResult, StageSpec
-from skill_creator_agent.orchestration.stage_runner import StageRunner
-from skill_creator_agent.orchestration.toolsets import (
+from knowledge_skills.orchestration.drafts import DraftSkillContext, DraftSkillManager
+from knowledge_skills.orchestration.models import BuildVersion, SessionState, StageResult, StageSpec
+from knowledge_skills.orchestration.stage_runner import StageRunner
+from knowledge_skills.orchestration.toolsets import (
     BUILD_FILE_TOOL_NAMES,
     GRAPH_TOOL_NAMES,
     SKILL_CREATION_TOOL_NAMES,
 )
-from skill_creator_agent.prompts import (
+from knowledge_skills.prompts import (
     GRAPH_CONNECTOR_PYTHON_CONTRACT,
     STAGE_CONTEXT_BUILD_RUN,
     load_prompt,
 )
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 
 class BuildRunAgent:

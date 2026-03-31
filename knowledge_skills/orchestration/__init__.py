@@ -1,6 +1,6 @@
-from skill_creator_agent.orchestration.artifacts import ArtifactStore
-from skill_creator_agent.orchestration.drafts import DraftSkillContext, DraftSkillManager
-from skill_creator_agent.orchestration.models import (
+from knowledge_skills.orchestration.artifacts import ArtifactStore
+from knowledge_skills.orchestration.drafts import DraftSkillContext, DraftSkillManager
+from knowledge_skills.orchestration.models import (
     AWAIT_BUILD_REVIEW,
     AWAIT_CREATE_CONFIRMATION,
     AWAIT_PLAN_APPROVAL,
@@ -17,16 +17,16 @@ from skill_creator_agent.orchestration.models import (
     StageResult,
     StageSpec,
 )
-from skill_creator_agent.orchestration.references import (
+from knowledge_skills.orchestration.references import (
     ReferenceIntakeResult,
     build_reference_bundle,
     build_reference_clarification_message,
     extract_reference_paths,
     intake_references,
 )
-from skill_creator_agent.orchestration.router import UnifiedRouter
-from skill_creator_agent.orchestration.stage_runner import StageRunner
-from skill_creator_agent.orchestration.stages import BuildRunAgent, ExistingSkillAgent, PlanAgent
+from knowledge_skills.orchestration.router import UnifiedRouter
+from knowledge_skills.orchestration.stage_runner import StageRunner
+from knowledge_skills.orchestration.stages import BuildRunAgent, ExistingSkillAgent, PlanAgent
 
 __all__ = [
     "ArtifactStore",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from skill_creator_agent.runtime import SkillCreatorRuntime
-from skill_creator_agent.settings import DEFAULT_SKILLS_ROOT
+from knowledge_skills.runtime import SkillCreatorRuntime
+from knowledge_skills.settings import DEFAULT_SKILLS_ROOT
 
 
 def test_runtime_lists_and_reads_fixture_skill():

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from skill_creator_agent.orchestration.models import SessionState, StageResult, StageSpec
-from skill_creator_agent.orchestration.stage_runner import StageRunner
-from skill_creator_agent.orchestration.toolsets import SKILL_EXECUTION_TOOL_NAMES
-from skill_creator_agent.prompts import STAGE_CONTEXT_EXISTING_SKILL, load_prompt
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.orchestration.models import SessionState, StageResult, StageSpec
+from knowledge_skills.orchestration.stage_runner import StageRunner
+from knowledge_skills.orchestration.toolsets import SKILL_EXECUTION_TOOL_NAMES
+from knowledge_skills.prompts import STAGE_CONTEXT_EXISTING_SKILL, load_prompt
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 
 class ExistingSkillAgent:

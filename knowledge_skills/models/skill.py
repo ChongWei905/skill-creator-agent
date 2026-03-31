@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from skill_creator_agent.paths import project_path
+from knowledge_skills.paths import project_path
 
 
 @dataclass

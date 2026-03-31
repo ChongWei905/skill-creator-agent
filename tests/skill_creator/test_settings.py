@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skill_creator_agent.paths import resolve_local_path
-from skill_creator_agent.settings import (
+from knowledge_skills.paths import resolve_local_path
+from knowledge_skills.settings import (
     DEFAULT_GRAPH_BASE_URL,
     DEFAULT_SKILLS_ROOT,
     ENV_GRAPH_BASE_URL,

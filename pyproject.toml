@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "skill-creator-agent"
 version = "0.1.0"
-description = "Standalone skill_creator runtime extracted from Ferry."
+description = "Standalone knowledge skills runtime extracted from Ferry."
 requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
 ]
 
 [project.scripts]
-skill-creator-chat = "skill_creator_agent.main:main"
+skill-creator-chat = "knowledge_skills.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -21,7 +21,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["skill_creator_agent*", "connectors*"]
+include = ["knowledge_skills*", "connectors*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

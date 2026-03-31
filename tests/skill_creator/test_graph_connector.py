@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from skill_creator_agent.connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 
 
 class RecordingGraphConnector(GraphConnector):

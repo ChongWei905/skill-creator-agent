@@ -7,4 +7,4 @@ Re-exporting the package implementation here preserves that contract.
 
 __all__ = ["GraphConnector"]
 
-from skill_creator_agent.connectors.graph_connector import GraphConnector
+from knowledge_skills.connectors.graph_connector import GraphConnector

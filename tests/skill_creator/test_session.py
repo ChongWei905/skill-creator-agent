@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import skill_creator_agent.orchestration.session as session_module
+import knowledge_skills.orchestration.session as session_module
 
-from skill_creator_agent.main import parse_args
-from skill_creator_agent.orchestration.session import (
+from knowledge_skills.main import parse_args
+from knowledge_skills.orchestration.session import (
     DataAgentSession,
     _augment_build_review_message,
     _augment_build_response_with_final_result,
@@ -15,7 +15,7 @@ from skill_creator_agent.orchestration.session import (
     extract_last_message_text,
     load_config_dict,
 )
-from skill_creator_agent.orchestration import (
+from knowledge_skills.orchestration import (
     AWAIT_BUILD_REVIEW,
     AWAIT_CREATE_CONFIRMATION,
     AWAIT_PLAN_APPROVAL,
@@ -23,16 +23,16 @@ from skill_creator_agent.orchestration import (
     BUILDING_AND_RUNNING,
     DONE,
 )
-from skill_creator_agent.orchestration.references import (
+from knowledge_skills.orchestration.references import (
     build_reference_clarification_message,
     extract_reference_paths,
     intake_references,
     load_reference_sources,
 )
-from skill_creator_agent.orchestration.drafts import DraftSkillContext
-from skill_creator_agent.orchestration.models import BuildVersion, RouterDecision, StageResult
-from skill_creator_agent.orchestration.router import UnifiedRouter
-from skill_creator_agent.orchestration.stages.plan import _select_skill_slug, _slugify
+from knowledge_skills.orchestration.drafts import DraftSkillContext
+from knowledge_skills.orchestration.models import BuildVersion, RouterDecision, StageResult
+from knowledge_skills.orchestration.router import UnifiedRouter
+from knowledge_skills.orchestration.stages.plan import _select_skill_slug, _slugify
 
 
 async def _async_value(value):

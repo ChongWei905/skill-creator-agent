@@ -5,8 +5,8 @@ from pathlib import Path
 
 import yaml
 
-from skill_creator_agent.paths import project_path, resolve_local_path
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.paths import project_path, resolve_local_path
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 DEBUG_CONFIG_PATH = project_path("tests", "fixtures", "skill_creator_debug.yaml")
 SMOKE_SKILL_REL_PATH = "tests/fixtures/minimal_skills/skill-creator-smoke"

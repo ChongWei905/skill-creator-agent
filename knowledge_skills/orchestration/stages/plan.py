@@ -3,11 +3,11 @@ from __future__ import annotations
 import hashlib
 import re
 
-from skill_creator_agent.orchestration.models import PlanVersion, SessionState, StageResult, StageSpec
-from skill_creator_agent.orchestration.stage_runner import StageRunner
-from skill_creator_agent.orchestration.toolsets import PLAN_GRAPH_TOOL_NAMES
-from skill_creator_agent.prompts import GRAPH_DB_INSTRUCTION, STAGE_CONTEXT_PLAN_AGENT, load_prompt
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.orchestration.models import PlanVersion, SessionState, StageResult, StageSpec
+from knowledge_skills.orchestration.stage_runner import StageRunner
+from knowledge_skills.orchestration.toolsets import PLAN_GRAPH_TOOL_NAMES
+from knowledge_skills.prompts import GRAPH_DB_INSTRUCTION, STAGE_CONTEXT_PLAN_AGENT, load_prompt
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 
 class PlanAgent:

@@ -8,8 +8,8 @@ from typing import Any, Mapping
 import yaml
 from ferry.interface.sdk.agent import DataAgent
 
-from skill_creator_agent.ferry_integration.tools import configure_runtime_tools
-from skill_creator_agent.orchestration import (
+from knowledge_skills.ferry_integration.tools import configure_runtime_tools
+from knowledge_skills.orchestration import (
     AWAIT_BUILD_REVIEW,
     AWAIT_CREATE_CONFIRMATION,
     AWAIT_PLAN_APPROVAL,
@@ -33,8 +33,8 @@ from skill_creator_agent.orchestration import (
     build_reference_bundle,
     intake_references,
 )
-from skill_creator_agent.paths import project_path
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.paths import project_path
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 DEFAULT_VERIFICATION_CONFIG = project_path("config.yaml")
 DEFAULT_VERIFICATION_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")

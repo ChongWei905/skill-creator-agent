@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from skill_creator_agent.models import Skill, SkillScript
+from knowledge_skills.models import Skill, SkillScript
 
 logger = logging.getLogger(__name__)
 

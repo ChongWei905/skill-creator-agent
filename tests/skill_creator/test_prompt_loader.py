@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from skill_creator_agent.prompts import (
+from knowledge_skills.prompts import (
     GRAPH_CONNECTOR_PYTHON_CONTRACT,
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,

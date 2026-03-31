@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import skill_creator_agent.ferry_integration.tools as ferry_tools_module
-from skill_creator_agent.ferry_integration.config import DEFAULT_GRAPH_TOOLS, DEFAULT_RUNTIME_TOOLS
-from skill_creator_agent.ferry_integration.runtime_reset import reset_ferry_singletons
-from skill_creator_agent.ferry_integration.tools import (
+import knowledge_skills.ferry_integration.tools as ferry_tools_module
+from knowledge_skills.ferry_integration.config import DEFAULT_GRAPH_TOOLS, DEFAULT_RUNTIME_TOOLS
+from knowledge_skills.ferry_integration.runtime_reset import reset_ferry_singletons
+from knowledge_skills.ferry_integration.tools import (
     configure_runtime_tools,
     execute_skill_script,
     graph_property_filter,
     reset_runtime_tools,
 )
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 
 def test_skill_creator_tools_register_with_ferry_tool_manager(tmp_path):

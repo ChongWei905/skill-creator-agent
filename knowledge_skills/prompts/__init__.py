@@ -1,4 +1,4 @@
-from skill_creator_agent.prompts.prompt_loader import (
+from knowledge_skills.prompts.prompt_loader import (
     GRAPH_CONNECTOR_PYTHON_CONTRACT,
     GRAPH_DB_INSTRUCTION,
     NO_SKILL_FALLBACK,

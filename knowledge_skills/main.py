@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Any
 
-from skill_creator_agent.paths import project_path
+from knowledge_skills.paths import project_path
 
 DEFAULT_CONFIG_PATH = project_path("config.yaml")
 DEFAULT_OUTPUT_ROOT = project_path(".tmp", "data_agent_multiturn")
@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 def build_parser() -> argparse.ArgumentParser:
     """Build the interactive CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="Interactive multi-turn CLI for skill_creator via Ferry DataAgent.",
+        description="Interactive multi-turn CLI for knowledge skills via Ferry DataAgent.",
     )
     parser.add_argument(
         "--config",
         default=str(DEFAULT_CONFIG_PATH),
-        help="Base skill_creator config YAML. Uses project config.yaml when present.",
+        help="Base knowledge skills config YAML. Uses project config.yaml when present.",
     )
     parser.add_argument(
         "--skills-root",
@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse CLI arguments for the multi-turn skill creator shell."""
+    """Parse CLI arguments for the multi-turn knowledge skills shell."""
     return build_parser().parse_args(argv)
 
 
@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
 
 async def async_main(argv: list[str] | None = None) -> int:
     """Run the async CLI entrypoint."""
-    from skill_creator_agent.orchestration.session import build_data_agent_session
+    from knowledge_skills.orchestration.session import build_data_agent_session
 
     _configure_logging()
     args = parse_args(argv)
@@ -109,7 +109,7 @@ async def async_main(argv: list[str] | None = None) -> int:
         materialized_config_path=args.materialized_config,
     )
 
-    logger.info("Skill Creator DataAgent CLI")
+    logger.info("Knowledge Skills DataAgent CLI")
     logger.info("- ferry config: %s", session.ferry_config_path)
     logger.info("- session_id:   %s", session.session_id)
     logger.info("- output_path:  %s", session.output_path)
@@ -214,7 +214,7 @@ def _configure_logging() -> None:
 
 
 async def _run_turn(session: Any, query: str, *, show_state_json: bool) -> None:
-    from skill_creator_agent.orchestration.session import extract_last_message_text
+    from knowledge_skills.orchestration.session import extract_last_message_text
 
     logger.info(
         "\n[run_id=%s] sending... (workflow_stage=%s, active_turn_stage=%s)",

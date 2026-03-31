@@ -3,7 +3,7 @@
 Generated skills currently import ``GraphConnector`` via
 ``from connectors import GraphConnector``. This top-level package keeps that
 import path stable while the real implementation lives under
-``skill_creator_agent.connectors``.
+``knowledge_skills.connectors``.
 """
 
 from .graph_connector import GraphConnector

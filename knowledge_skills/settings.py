@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from skill_creator_agent.paths import project_path, resolve_local_path
+from knowledge_skills.paths import project_path, resolve_local_path
 
 ENV_SKILLS_ROOT = "SKILL_CREATOR_SKILLS_ROOT"
 ENV_GRAPH_BASE_URL = "SKILL_CREATOR_GRAPH_BASE_URL"

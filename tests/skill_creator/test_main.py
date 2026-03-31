@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import skill_creator_agent.main as main_module
+import knowledge_skills.main as main_module
 
 
 def test_ensure_ferry_importable_requires_installed_ferry(monkeypatch):
@@ -105,7 +105,7 @@ def test_async_main_preserves_config_backed_graph_settings_when_flags_are_omitte
         ),
     )
 
-    from skill_creator_agent.orchestration import session as session_module
+    from knowledge_skills.orchestration import session as session_module
 
     monkeypatch.setattr(session_module, "build_data_agent_session", fake_build_data_agent_session)
 
@@ -176,7 +176,7 @@ def test_async_main_disables_graph_only_when_flag_is_present(monkeypatch):
         ),
     )
 
-    from skill_creator_agent.orchestration import session as session_module
+    from knowledge_skills.orchestration import session as session_module
 
     monkeypatch.setattr(session_module, "build_data_agent_session", fake_build_data_agent_session)
 

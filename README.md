@@ -58,10 +58,10 @@
 
 在当前代码里，这些能力主要落在：
 
-- `skill_creator_agent/orchestration/stage_runner.py`
-- `skill_creator_agent/ferry_integration/config.py`
-- `skill_creator_agent/ferry_integration/tools.py`
-- `skill_creator_agent/ferry_integration/runtime_reset.py`
+- `knowledge_skills/orchestration/stage_runner.py`
+- `knowledge_skills/ferry_integration/config.py`
+- `knowledge_skills/ferry_integration/tools.py`
+- `knowledge_skills/ferry_integration/runtime_reset.py`
 
 其中有一个实现细节很重要：
 
@@ -115,7 +115,7 @@ flowchart TD
 
 这些状态定义在：
 
-- `skill_creator_agent/orchestration/models.py`
+- `knowledge_skills/orchestration/models.py`
 
 ## 各阶段职责
 
@@ -130,7 +130,7 @@ flowchart TD
 
 对应代码：
 
-- `skill_creator_agent/orchestration/stages/existing_skill.py`
+- `knowledge_skills/orchestration/stages/existing_skill.py`
 
 ### 2. PlanAgent
 
@@ -152,8 +152,8 @@ flowchart TD
 
 对应代码：
 
-- `skill_creator_agent/orchestration/stages/plan.py`
-- `skill_creator_agent/prompts/stage_context_plan_agent.md`
+- `knowledge_skills/orchestration/stages/plan.py`
+- `knowledge_skills/prompts/stage_context_plan_agent.md`
 
 ### 3. BuildRunAgent
 
@@ -175,8 +175,8 @@ flowchart TD
 
 对应代码：
 
-- `skill_creator_agent/orchestration/stages/build_run.py`
-- `skill_creator_agent/prompts/stage_context_build_run.md`
+- `knowledge_skills/orchestration/stages/build_run.py`
+- `knowledge_skills/prompts/stage_context_build_run.md`
 
 ## UnifiedRouter 设计
 
@@ -209,8 +209,8 @@ flowchart TD
 
 对应代码和 prompt：
 
-- `skill_creator_agent/orchestration/router.py`
-- `skill_creator_agent/prompts/unified_router.md`
+- `knowledge_skills/orchestration/router.py`
+- `knowledge_skills/prompts/unified_router.md`
 
 ## 为什么先写到 `.tmp/.../drafts`，不是直接写到 `skills/`
 
@@ -231,7 +231,7 @@ flowchart TD
 
 对应代码：
 
-- `skill_creator_agent/orchestration/drafts.py`
+- `knowledge_skills/orchestration/drafts.py`
 
 ## 上下文交接方式
 
@@ -258,27 +258,27 @@ flowchart TD
 
 核心实现：
 
-- `skill_creator_agent/orchestration/session.py`
-- `skill_creator_agent/orchestration/models.py`
+- `knowledge_skills/orchestration/session.py`
+- `knowledge_skills/orchestration/models.py`
 
 ## Prompt Surface
 
 当前真正参与新架构的 prompt 主要有：
 
-- `skill_creator_agent/prompts/stage_context_existing_skill.md`
-- `skill_creator_agent/prompts/stage_context_plan_agent.md`
-- `skill_creator_agent/prompts/stage_context_build_run.md`
-- `skill_creator_agent/prompts/unified_router.md`
+- `knowledge_skills/prompts/stage_context_existing_skill.md`
+- `knowledge_skills/prompts/stage_context_plan_agent.md`
+- `knowledge_skills/prompts/stage_context_build_run.md`
+- `knowledge_skills/prompts/unified_router.md`
 
 另外，runtime 层仍然保留了一部分基础 prompt，用于 skill/runtime 通用行为：
 
-- `skill_creator_agent/prompts/system_prompt_base.md`
-- `skill_creator_agent/prompts/system_prompt_direct_query.md`
-- `skill_creator_agent/prompts/skill_creation_workflow.md`
-- `skill_creator_agent/prompts/no_skill_fallback.md`
-- `skill_creator_agent/prompts/no_skill_fallback_direct.md`
-- `skill_creator_agent/prompts/skill_execution_reminder.md`
-- `skill_creator_agent/prompts/graph_connector_python_contract.md`
+- `knowledge_skills/prompts/system_prompt_base.md`
+- `knowledge_skills/prompts/system_prompt_direct_query.md`
+- `knowledge_skills/prompts/skill_creation_workflow.md`
+- `knowledge_skills/prompts/no_skill_fallback.md`
+- `knowledge_skills/prompts/no_skill_fallback_direct.md`
+- `knowledge_skills/prompts/skill_execution_reminder.md`
+- `knowledge_skills/prompts/graph_connector_python_contract.md`
 
 ## 目录结构
 
@@ -287,7 +287,7 @@ flowchart TD
 ├── config.yaml.example
 ├── skills/
 ├── connectors/
-├── skill_creator_agent/
+├── knowledge_skills/
 │   ├── ferry_integration/
 │   │   ├── config.py
 │   │   ├── runtime_reset.py
@@ -447,7 +447,7 @@ python -m pytest tests/skill_creator/test_session.py -q
 这项改造完成后，希望达到的效果是：
 
 - agent 调工具，skill 调 SDK，二者共享底层 capability 实现，但不共享同一个 import surface
-- 新生成的 skill 不再直接 import `skill_creator_agent.*`、`orchestration.*`、`ferry_integration.*`
+- 新生成的 skill 不再直接 import `knowledge_skills.*`、`orchestration.*`、`ferry_integration.*`
 - `connectors` 这类兼容壳进入明确的 deprecated 生命周期，后续逐步迁出
 
 在真正动手前，应先定清楚：
@@ -475,9 +475,9 @@ python -m pytest tests/skill_creator/test_session.py -q
 
 当前工具暴露面分散在多个位置维护：
 
-- `skill_creator_agent.ferry_integration.tools` 中定义 Python 工具函数
-- `skill_creator_agent.ferry_integration.config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
-- `skill_creator_agent.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
+- `knowledge_skills.ferry_integration.tools` 中定义 Python 工具函数
+- `knowledge_skills.ferry_integration.config` 中通过 `DEFAULT_RUNTIME_TOOLS`、`DEFAULT_GRAPH_TOOLS` 等静态列表声明可注册工具
+- `knowledge_skills.orchestration.toolsets` 中再通过多个按阶段划分的工具名集合做白名单过滤
 
 当前设计虽然安全、显式、默认关闭，但存在几个明确问题：
 

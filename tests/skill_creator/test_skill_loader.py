@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from skill_creator_agent.paths import resolve_local_path
-from skill_creator_agent.loaders import SkillLoader
+from knowledge_skills.paths import resolve_local_path
+from knowledge_skills.loaders import SkillLoader
 
 
 def test_skill_loader_loads_fixture_skill():

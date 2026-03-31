@@ -4,7 +4,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from skill_creator_agent.runtime import SkillCreatorRuntime
+from knowledge_skills.runtime import SkillCreatorRuntime
 
 
 @dataclass(frozen=True)

@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-from skill_creator_agent.runtime import SkillCreatorRuntime
-from skill_creator_agent.ferry_integration.argument_normalizer import (
+from knowledge_skills.runtime import SkillCreatorRuntime
+from knowledge_skills.ferry_integration.argument_normalizer import (
     normalize_bool,
     normalize_cli_arguments,
     normalize_int,

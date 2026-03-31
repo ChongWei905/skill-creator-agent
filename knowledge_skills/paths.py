@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def package_root() -> Path:
-    """Return the root directory of the ``skill_creator_agent`` package."""
+    """Return the root directory of the ``knowledge_skills`` package."""
     return Path(__file__).resolve().parent
 
 
