@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import importlib
 import json
-import sys
 from typing import Any
 
 from skill_creator_agent.paths import project_path

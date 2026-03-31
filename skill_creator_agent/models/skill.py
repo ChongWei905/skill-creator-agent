@@ -107,7 +107,7 @@ class Skill:
     def get_script(self, name: str) -> SkillScript | None:
         """Return one script by logical name or filename if it exists."""
         for script in self.scripts:
-            if script.name == name or script.path.name == name:
+            if name in (script.name, script.path.name):
                 return script
         return None
 

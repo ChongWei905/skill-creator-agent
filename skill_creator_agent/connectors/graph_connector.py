@@ -34,7 +34,7 @@ class GraphConnector:
         upper_atom = atom.upper()
         for prefix in textual_prefixes:
             if upper_atom.startswith(prefix):
-                suffix = atom[len(prefix) :].strip()
+                suffix = atom[len(prefix):].strip()
                 if not suffix:
                     raise ValueError(f"Filter expression '{atom}' is missing a value after {prefix}.")
                 return f"{prefix} {suffix}"
@@ -60,6 +60,14 @@ class GraphConnector:
             return str(element_type), "NODE"
 
         return element_class, "NODE"
+
+    @staticmethod
+    def close() -> None:
+        """Close the connector interface.
+
+        The current HTTP implementation is stateless, so there is nothing to release.
+        """
+        return None
 
     @classmethod
     def _normalize_filter_dict(cls, filter_dict: dict[str, Any] | None) -> dict[str, str]:
@@ -296,13 +304,6 @@ class GraphConnector:
             get_all_properties=True,
         )
         return results[:limit]
-
-    def close(self) -> None:
-        """Close the connector interface.
-
-        The current HTTP implementation is stateless, so there is nothing to release.
-        """
-        return None
 
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         url = f"{self.base_url}{path}"

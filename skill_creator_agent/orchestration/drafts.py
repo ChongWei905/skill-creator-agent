@@ -27,6 +27,55 @@ class DraftSkillManager:
         self.drafts_root.mkdir(parents=True, exist_ok=True)
         self.archives_root.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def build_runtime(
+        *,
+        base_runtime: SkillCreatorRuntime,
+        draft: DraftSkillContext,
+    ) -> SkillCreatorRuntime:
+        """Build a runtime that points at the draft root instead of published skills."""
+        config = {
+            "SKILL_CREATOR": {
+                "skills_root": str(draft.draft_root),
+                "graph_enabled": base_runtime.settings.graph_enabled,
+                "graph_base_url": base_runtime.settings.graph_base_url,
+                "graph_timeout": base_runtime.settings.graph_timeout,
+            }
+        }
+        return SkillCreatorRuntime.from_config(config)
+
+    @staticmethod
+    def ensure_draft_scaffold(
+        *,
+        base_runtime: SkillCreatorRuntime,
+        draft: DraftSkillContext,
+        description: str,
+    ) -> SkillCreatorRuntime:
+        """Ensure the draft skill scaffold exists and return its dedicated runtime."""
+        draft_runtime = DraftSkillManager.build_runtime(base_runtime=base_runtime, draft=draft)
+        if draft.skill_md_path.exists():
+            return draft_runtime
+        draft_runtime.create_skill_scaffold(
+            draft.skill_slug,
+            description or draft.skill_slug,
+        )
+        return draft_runtime
+
+    @staticmethod
+    def promote_draft(
+        *,
+        draft: DraftSkillContext,
+        published_runtime: SkillCreatorRuntime,
+    ) -> Path:
+        """Promote one reviewed draft into the published skills directory."""
+        published_root = published_runtime.ensure_skills_root()
+        target = (published_root / draft.skill_slug).resolve()
+        if not draft.skill_dir.exists():
+            raise FileNotFoundError(f"Draft skill does not exist: {draft.skill_dir}")
+        shutil.copytree(draft.skill_dir, target, dirs_exist_ok=True)
+        published_runtime.reload_skill(draft.skill_slug)
+        return target
+
     def prepare_draft(self, *, skill_slug: str, build_version: int) -> DraftSkillContext:
         """Create the filesystem context metadata for one new draft build."""
         draft_id = f"build-v{build_version:02d}"
@@ -46,40 +95,6 @@ class DraftSkillManager:
             primary_script_path=primary_script_path,
         )
 
-    def build_runtime(
-        self,
-        *,
-        base_runtime: SkillCreatorRuntime,
-        draft: DraftSkillContext,
-    ) -> SkillCreatorRuntime:
-        """Build a runtime that points at the draft root instead of published skills."""
-        config = {
-            "SKILL_CREATOR": {
-                "skills_root": str(draft.draft_root),
-                "graph_enabled": base_runtime.settings.graph_enabled,
-                "graph_base_url": base_runtime.settings.graph_base_url,
-                "graph_timeout": base_runtime.settings.graph_timeout,
-            }
-        }
-        return SkillCreatorRuntime.from_config(config)
-
-    def ensure_draft_scaffold(
-        self,
-        *,
-        base_runtime: SkillCreatorRuntime,
-        draft: DraftSkillContext,
-        description: str,
-    ) -> SkillCreatorRuntime:
-        """Ensure the draft skill scaffold exists and return its dedicated runtime."""
-        draft_runtime = self.build_runtime(base_runtime=base_runtime, draft=draft)
-        if draft.skill_md_path.exists():
-            return draft_runtime
-        draft_runtime.create_skill_scaffold(
-            draft.skill_slug,
-            description or draft.skill_slug,
-        )
-        return draft_runtime
-
     def archive_draft(self, draft: DraftSkillContext) -> Path:
         """Copy one draft directory into the archive area and return the archive path."""
         if not draft.draft_root.exists():
@@ -88,19 +103,4 @@ class DraftSkillManager:
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(draft.draft_root, target)
-        return target
-
-    def promote_draft(
-        self,
-        *,
-        draft: DraftSkillContext,
-        published_runtime: SkillCreatorRuntime,
-    ) -> Path:
-        """Promote one reviewed draft into the published skills directory."""
-        published_root = published_runtime.ensure_skills_root()
-        target = (published_root / draft.skill_slug).resolve()
-        if not draft.skill_dir.exists():
-            raise FileNotFoundError(f"Draft skill does not exist: {draft.skill_dir}")
-        shutil.copytree(draft.skill_dir, target, dirs_exist_ok=True)
-        published_runtime.reload_skill(draft.skill_slug)
         return target

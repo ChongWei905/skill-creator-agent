@@ -6,7 +6,7 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT_TEXT = str(REPO_ROOT)
 if REPO_ROOT_TEXT not in sys.path:
-    sys.path.insert(0, REPO_ROOT_TEXT)
+    sys.path.append(REPO_ROOT_TEXT)
 
 from skill_creator_agent.main import main
 

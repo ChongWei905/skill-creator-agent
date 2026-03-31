@@ -25,6 +25,68 @@ class SkillLoader:
         self.skills_root = Path(skills_root).expanduser().resolve()
         self.skills: dict[str, Skill] = {}
 
+    @staticmethod
+    def validate_frontmatter(frontmatter: dict, skill_dir: str | Path) -> None:
+        """Validate frontmatter against the loader's current skill package rules."""
+        SkillLoader._validate_frontmatter(frontmatter, Path(skill_dir).expanduser().resolve())
+
+    @staticmethod
+    def _split_frontmatter(content: str) -> tuple[dict, str]:
+        if not content.startswith("---"):
+            raise ValueError("SKILL.md must start with YAML frontmatter")
+
+        match = re.match(r"^---\n(.*?)\n---\n?(.*)", content, re.DOTALL)
+        if not match:
+            raise ValueError("Unable to parse YAML frontmatter block")
+
+        try:
+            frontmatter = yaml.safe_load(match.group(1)) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError("Invalid YAML frontmatter") from exc
+
+        if not isinstance(frontmatter, dict):
+            raise ValueError("Frontmatter must deserialize to a mapping")
+        return frontmatter, match.group(2).strip()
+
+    @staticmethod
+    def _validate_frontmatter(frontmatter: dict, skill_dir: Path) -> None:
+        name = str(frontmatter.get("name") or skill_dir.name)
+        description = str(frontmatter.get("description") or "")
+
+        if name != skill_dir.name:
+            raise ValueError("Skill directory name must match frontmatter name")
+        if len(name) > 64:
+            raise ValueError(f"name exceeds 64 characters: {len(name)}")
+        if not re.match(r"^[a-z0-9-]+$", name):
+            raise ValueError("name can only contain lowercase letters, numbers, and hyphens")
+        if name.lower() in {"anthropic", "claude"}:
+            raise ValueError(f"reserved skill name: {name}")
+        if "<" in name or ">" in name:
+            raise ValueError("name cannot contain XML tags")
+
+        if not description.strip():
+            raise ValueError("description cannot be empty")
+        if len(description) > 1024:
+            raise ValueError(f"description exceeds 1024 characters: {len(description)}")
+        if "<" in description or ">" in description:
+            raise ValueError("description cannot contain XML tags")
+
+    @staticmethod
+    def _extract_script_description(script_path: Path) -> str:
+        try:
+            content = script_path.read_text(encoding="utf-8")
+        except Exception:
+            return ""
+
+        if script_path.suffix == ".py":
+            match = re.search(r'^"""(.*?)"""', content, re.DOTALL)
+            if match:
+                return match.group(1).strip().splitlines()[0]
+        for line in content.splitlines()[:10]:
+            if line.startswith("#") and not line.startswith("#!"):
+                return line[1:].strip()
+        return ""
+
     def load_all(self) -> dict[str, Skill]:
         """Load every valid skill package found under the configured root."""
         if not self.skills_root.exists():
@@ -76,10 +138,6 @@ class SkillLoader:
         assert skill is not None
         return skill
 
-    def validate_frontmatter(self, frontmatter: dict, skill_dir: str | Path) -> None:
-        """Validate frontmatter against the loader's current skill package rules."""
-        self._validate_frontmatter(frontmatter, Path(skill_dir).expanduser().resolve())
-
     def _parse_skill(self, skill_md_path: Path) -> Skill:
         frontmatter, body = self._split_frontmatter(skill_md_path.read_text(encoding="utf-8"))
         skill_dir = skill_md_path.parent
@@ -100,45 +158,6 @@ class SkillLoader:
             metadata=metadata,
             scripts=scripts,
         )
-
-    def _split_frontmatter(self, content: str) -> tuple[dict, str]:
-        if not content.startswith("---"):
-            raise ValueError("SKILL.md must start with YAML frontmatter")
-
-        match = re.match(r"^---\n(.*?)\n---\n?(.*)", content, re.DOTALL)
-        if not match:
-            raise ValueError("Unable to parse YAML frontmatter block")
-
-        try:
-            frontmatter = yaml.safe_load(match.group(1)) or {}
-        except yaml.YAMLError as exc:
-            raise ValueError("Invalid YAML frontmatter") from exc
-
-        if not isinstance(frontmatter, dict):
-            raise ValueError("Frontmatter must deserialize to a mapping")
-        return frontmatter, match.group(2).strip()
-
-    def _validate_frontmatter(self, frontmatter: dict, skill_dir: Path) -> None:
-        name = str(frontmatter.get("name") or skill_dir.name)
-        description = str(frontmatter.get("description") or "")
-
-        if name != skill_dir.name:
-            raise ValueError("Skill directory name must match frontmatter name")
-        if len(name) > 64:
-            raise ValueError(f"name exceeds 64 characters: {len(name)}")
-        if not re.match(r"^[a-z0-9-]+$", name):
-            raise ValueError("name can only contain lowercase letters, numbers, and hyphens")
-        if name.lower() in {"anthropic", "claude"}:
-            raise ValueError(f"reserved skill name: {name}")
-        if "<" in name or ">" in name:
-            raise ValueError("name cannot contain XML tags")
-
-        if not description.strip():
-            raise ValueError("description cannot be empty")
-        if len(description) > 1024:
-            raise ValueError(f"description exceeds 1024 characters: {len(description)}")
-        if "<" in description or ">" in description:
-            raise ValueError("description cannot contain XML tags")
 
     def _load_scripts(self, skill_dir: Path) -> list[SkillScript]:
         scripts_dir = skill_dir / "scripts"
@@ -161,18 +180,3 @@ class SkillLoader:
                 )
             )
         return loaded
-
-    def _extract_script_description(self, script_path: Path) -> str:
-        try:
-            content = script_path.read_text(encoding="utf-8")
-        except Exception:
-            return ""
-
-        if script_path.suffix == ".py":
-            match = re.search(r'^"""(.*?)"""', content, re.DOTALL)
-            if match:
-                return match.group(1).strip().splitlines()[0]
-        for line in content.splitlines()[:10]:
-            if line.startswith("#") and not line.startswith("#!"):
-                return line[1:].strip()
-        return ""

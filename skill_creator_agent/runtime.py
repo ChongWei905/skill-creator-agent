@@ -31,16 +31,42 @@ class SkillCreatorRuntime:
 
     @staticmethod
     def _render_skill_md(frontmatter: dict[str, Any], body: str) -> str:
+        """Render canonical SKILL.md content from frontmatter and body text."""
         frontmatter_text = yaml.safe_dump(frontmatter, allow_unicode=True, sort_keys=False).strip()
         rendered_body = body.strip() or "# Skill\n\nDescribe the workflow and execution steps for this skill."
         return f"---\n{frontmatter_text}\n---\n\n{rendered_body}\n"
 
     @staticmethod
     def _resolve_script_path(scripts_dir: Path, relative_path: str) -> Path:
+        """Resolve one script path while enforcing that it stays under scripts/."""
         candidate = (scripts_dir / relative_path).resolve()
         if not candidate.is_relative_to(scripts_dir.resolve()):
             raise ValueError(f"Script path must stay within scripts/: {relative_path}")
         return candidate
+
+    @staticmethod
+    def build_missing_skill_prompt(*, direct_query: bool = False) -> str:
+        """Render the fallback prompt used when no existing skill is a fit."""
+        prompt_name = NO_SKILL_FALLBACK_DIRECT if direct_query else NO_SKILL_FALLBACK
+        return load_prompt(prompt_name)
+
+    @staticmethod
+    def skill_to_dict(skill: Skill) -> dict[str, Any]:
+        """Convert one loaded skill into a serializable metadata dictionary."""
+        return {
+            "name": skill.name,
+            "description": skill.description,
+            "path": str(skill.path),
+            "scripts": [
+                {
+                    "name": script.name,
+                    "path": str(script.path),
+                    "language": script.language,
+                    "description": script.description,
+                }
+                for script in skill.scripts
+            ],
+        }
 
     @classmethod
     def from_config(cls, config: Mapping[str, Any] | None = None) -> "SkillCreatorRuntime":
@@ -51,9 +77,11 @@ class SkillCreatorRuntime:
     def load_skills(self, *, force: bool = False) -> dict[str, Skill]:
         """Load skills from disk and return the current in-memory registry."""
         if force or not self._skills_loaded:
-            self.ensure_skills_root()
-            self.loader.load_all()
+            skills_root = self.ensure_skills_root()
+            self.loader.skills_root = skills_root
+            loaded_skills = self.loader.load_all()
             self._skills_loaded = True
+            return loaded_skills
         return dict(self.loader.skills)
 
     def ensure_skills_root(self) -> Path:
@@ -63,13 +91,13 @@ class SkillCreatorRuntime:
 
     def list_skills(self) -> list[dict[str, Any]]:
         """Return all known skills as serializable metadata dictionaries."""
-        self.load_skills()
-        return [self.skill_to_dict(skill) for skill in self.loader.skills.values()]
+        loaded_skills = self.load_skills()
+        return [self.skill_to_dict(skill) for skill in loaded_skills.values()]
 
     def get_skill(self, name: str) -> Skill:
         """Return one loaded skill by name or raise if it does not exist."""
-        self.load_skills()
-        skill = self.loader.get_skill(name)
+        loaded_skills = self.load_skills()
+        skill = loaded_skills.get(name)
         if skill is None:
             raise KeyError(f"Unknown skill: {name}")
         return skill
@@ -281,7 +309,9 @@ class SkillCreatorRuntime:
 
     def reload_skill(self, name: str) -> Skill:
         """Reload one skill from disk and refresh the runtime cache."""
-        self.load_skills()
+        loaded_skills = self.load_skills()
+        if name not in loaded_skills and not (self.settings.skills_root / name).exists():
+            raise KeyError(f"Unknown skill: {name}")
         return self.loader.reload_skill(name)
 
     def create_skill_scaffold(
@@ -296,8 +326,8 @@ class SkillCreatorRuntime:
         overwrite: bool = False,
     ) -> dict[str, Any]:
         """Create a new skill package skeleton on disk and return its file inventory."""
-        self.ensure_skills_root()
-        target_dir = (self.settings.skills_root / name).resolve()
+        skills_root = self.ensure_skills_root()
+        target_dir = (skills_root / name).resolve()
         frontmatter = {
             "name": name,
             "description": description,
@@ -340,9 +370,9 @@ class SkillCreatorRuntime:
 
     def build_ferry_skill_registry(self) -> list[dict[str, Any]]:
         """Build the skill registry payload expected by Ferry configuration rendering."""
-        self.load_skills()
+        loaded_skills = self.load_skills()
         registry: list[dict[str, Any]] = []
-        for skill in self.loader.skills.values():
+        for skill in loaded_skills.values():
             tags: list[str] = []
             if isinstance(skill.metadata, dict):
                 raw_tags = skill.metadata.get("tags")
@@ -361,9 +391,9 @@ class SkillCreatorRuntime:
 
     def build_skills_context(self, *, full: bool = False) -> str:
         """Render all loaded skills into the context block format used by prompts."""
-        self.load_skills()
+        loaded_skills = self.load_skills()
         render = Skill.to_full_context if full else Skill.to_metadata_context
-        return "\n".join(render(skill) for skill in self.loader.skills.values())
+        return "\n".join(render(skill) for skill in loaded_skills.values())
 
     def build_system_prompt(
         self,
@@ -400,28 +430,6 @@ class SkillCreatorRuntime:
             skill_execution_reminder=skill_execution_reminder,
             missing_skill_instruction=missing_skill_instruction,
         )
-
-    def build_missing_skill_prompt(self, *, direct_query: bool = False) -> str:
-        """Render the fallback prompt used when no existing skill is a fit."""
-        prompt_name = NO_SKILL_FALLBACK_DIRECT if direct_query else NO_SKILL_FALLBACK
-        return load_prompt(prompt_name)
-
-    def skill_to_dict(self, skill: Skill) -> dict[str, Any]:
-        """Convert one loaded skill into a serializable metadata dictionary."""
-        return {
-            "name": skill.name,
-            "description": skill.description,
-            "path": str(skill.path),
-            "scripts": [
-                {
-                    "name": script.name,
-                    "path": str(script.path),
-                    "language": script.language,
-                    "description": script.description,
-                }
-                for script in skill.scripts
-            ],
-        }
 
     def _get_script(self, name: str, script_name: str):
         skill = self.get_skill(name)

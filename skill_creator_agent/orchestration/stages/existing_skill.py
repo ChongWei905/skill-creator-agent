@@ -10,13 +10,14 @@ from skill_creator_agent.runtime import SkillCreatorRuntime
 class ExistingSkillAgent:
     stage_name = "existing_skill"
 
-    def build_spec(self, *, runtime: SkillCreatorRuntime, state: SessionState, query: str) -> StageSpec:
+    @classmethod
+    def build_spec(cls, *, runtime: SkillCreatorRuntime, state: SessionState, query: str) -> StageSpec:
         """Build the stage spec used to discover or execute an existing skill."""
         skills = runtime.list_skills()
         allowed_tools = set(SKILL_EXECUTION_TOOL_NAMES) if skills else set()
         skill_metadata = "\n".join(f"- {item['name']}: {item['description']}" for item in skills[:20]) or "- None"
         return StageSpec(
-            name=self.stage_name,
+            name=cls.stage_name,
             system_instructions=load_prompt(
                 STAGE_CONTEXT_EXISTING_SKILL,
                 user_goal=state.user_goal or query,
@@ -31,8 +32,9 @@ class ExistingSkillAgent:
             include_skills=True,
         )
 
+    @classmethod
     async def run(
-        self,
+        cls,
         *,
         runtime: SkillCreatorRuntime,
         stage_runner: StageRunner,
@@ -49,14 +51,14 @@ class ExistingSkillAgent:
             message = f"当前没有可用的技能可以直接处理“{goal}”。\n\n您是否希望我为您创建一个新的技能来处理这个需求？"
             return (
                 StageResult(
-                    stage_name=self.stage_name,
+                    stage_name=cls.stage_name,
                     result_code="need_create_confirmation",
                     user_message=message,
                 ),
                 None,
             )
 
-        spec = self.build_spec(runtime=runtime, state=state, query=query)
+        spec = cls.build_spec(runtime=runtime, state=state, query=query)
         execution = await stage_runner.run(
             spec=spec,
             runtime=runtime,
@@ -67,7 +69,7 @@ class ExistingSkillAgent:
         )
         return (
             StageResult(
-                stage_name=self.stage_name,
+                stage_name=cls.stage_name,
                 result_code="route_with_router",
                 user_message=_extract_text(execution.response),
                 raw_response=execution.response,

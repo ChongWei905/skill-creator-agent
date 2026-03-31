@@ -13,8 +13,30 @@ from skill_creator_agent.runtime import SkillCreatorRuntime
 class PlanAgent:
     stage_name = "plan"
 
+    @staticmethod
+    def register_plan(
+        *,
+        state: SessionState,
+        artifact_ref: str,
+        skill_name: str,
+        skill_slug: str,
+    ) -> PlanVersion:
+        """Append one new plan version to session state and return it."""
+        previous_plan = state.current_plan.version if state.current_plan else None
+        plan = PlanVersion(
+            version=state.next_plan_version(),
+            artifact_ref=artifact_ref,
+            status="proposed",
+            skill_name=skill_name,
+            skill_slug=skill_slug,
+            based_on_plan_version=previous_plan,
+        )
+        state.plan_history.append(plan)
+        return plan
+
+    @classmethod
     def build_spec(
-        self,
+        cls,
         *,
         runtime: SkillCreatorRuntime,
         state: SessionState,
@@ -25,7 +47,7 @@ class PlanAgent:
         reference_bundle = state.reference_summary or "未提供参考资料。"
         allowed_tools = set(PLAN_GRAPH_TOOL_NAMES) if runtime.settings.graph_enabled else set()
         return StageSpec(
-            name=self.stage_name,
+            name=cls.stage_name,
             system_instructions=load_prompt(
                 STAGE_CONTEXT_PLAN_AGENT,
                 user_goal=state.user_goal,
@@ -46,8 +68,9 @@ class PlanAgent:
             model_params_overrides={"max_tokens": 3072, "max_retries": 3},
         )
 
+    @classmethod
     async def run(
-        self,
+        cls,
         *,
         runtime: SkillCreatorRuntime,
         stage_runner: StageRunner,
@@ -59,7 +82,7 @@ class PlanAgent:
         stage_output_path,
     ) -> tuple[StageResult, object]:
         """Run the planning stage and capture plan metadata from the returned text."""
-        spec = self.build_spec(
+        spec = cls.build_spec(
             runtime=runtime,
             state=state,
             previous_plan_text=previous_plan_text,
@@ -84,7 +107,7 @@ class PlanAgent:
         )
         return (
             StageResult(
-                stage_name=self.stage_name,
+                stage_name=cls.stage_name,
                 result_code="plan_ready",
                 user_message=text,
                 raw_response=execution.response,
@@ -96,27 +119,6 @@ class PlanAgent:
             ),
             execution.data_agent,
         )
-
-    def register_plan(
-        self,
-        *,
-        state: SessionState,
-        artifact_ref: str,
-        skill_name: str,
-        skill_slug: str,
-    ) -> PlanVersion:
-        """Append one new plan version to session state and return it."""
-        previous_plan = state.current_plan.version if state.current_plan else None
-        plan = PlanVersion(
-            version=state.next_plan_version(),
-            artifact_ref=artifact_ref,
-            status="proposed",
-            skill_name=skill_name,
-            skill_slug=skill_slug,
-            based_on_plan_version=previous_plan,
-        )
-        state.plan_history.append(plan)
-        return plan
 
 
 def _extract_text(response: object) -> str:

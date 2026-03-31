@@ -55,25 +55,6 @@ class SessionState:
     pending_review_build_version: int | None = None
     active_draft_id: str = ""
 
-    def reset(self) -> None:
-        """Reset the session back to its initial idle state."""
-        self.workflow_stage = IDLE
-        self.active_turn_stage = "existing_skill"
-        self.last_question_type = "none"
-        self.last_user_reply = ""
-        self.last_assistant_text = ""
-        self.last_router_decision = ""
-        self.user_goal = ""
-        self.normalized_goal = ""
-        self.reference_artifact_ref = ""
-        self.reference_summary = ""
-        self.latest_feedback_artifact_ref = ""
-        self.plan_history.clear()
-        self.approved_plan_version = None
-        self.build_history.clear()
-        self.pending_review_build_version = None
-        self.active_draft_id = ""
-
     @property
     def current_plan(self) -> PlanVersion | None:
         """Return the most recent plan version recorded in this session."""
@@ -97,6 +78,25 @@ class SessionState:
         if not self.build_history:
             return None
         return self.build_history[-1]
+
+    def reset(self) -> None:
+        """Reset the session back to its initial idle state."""
+        self.workflow_stage = IDLE
+        self.active_turn_stage = "existing_skill"
+        self.last_question_type = "none"
+        self.last_user_reply = ""
+        self.last_assistant_text = ""
+        self.last_router_decision = ""
+        self.user_goal = ""
+        self.normalized_goal = ""
+        self.reference_artifact_ref = ""
+        self.reference_summary = ""
+        self.latest_feedback_artifact_ref = ""
+        self.plan_history.clear()
+        self.approved_plan_version = None
+        self.build_history.clear()
+        self.pending_review_build_version = None
+        self.active_draft_id = ""
 
     def next_plan_version(self) -> int:
         """Return the next sequential plan version number."""

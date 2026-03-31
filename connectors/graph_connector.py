@@ -5,6 +5,6 @@ skill prompts instruct scripts to use ``from connectors import GraphConnector``.
 Re-exporting the package implementation here preserves that contract.
 """
 
-from skill_creator_agent.connectors.graph_connector import GraphConnector
-
 __all__ = ["GraphConnector"]
+
+from skill_creator_agent.connectors.graph_connector import GraphConnector

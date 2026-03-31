@@ -1,20 +1,26 @@
 from __future__ import annotations
 
-from ferry.actions.tools import tool_manager
+import sys
+
+import ferry.actions.tools as ferry_tools_module
 from ferry.core.managers.llm_manager import llm_manager
+from ferry.actions.tools.manager import ToolManager
 
 
 def reset_ferry_singletons() -> None:
     """Clear Ferry tool and model singletons before materializing a new stage."""
-    registry = getattr(tool_manager, "tool_registry", None)
-    if hasattr(tool_manager, "clear_internal_state"):
-        tool_manager.clear_internal_state()
-    if hasattr(tool_manager, "_skills"):
-        tool_manager._skills.clear()
-    if registry is not None:
-        if hasattr(registry, "_tools"):
-            registry._tools = {}
-        if hasattr(registry, "_functions"):
-            registry._functions = {}
-    tool_manager.reset_instance()
+    old_tool_manager = ferry_tools_module.tool_manager
+    ToolManager.reset_instance()
+    new_tool_manager = ToolManager()
+    ferry_tools_module.tool_manager = new_tool_manager
+    _rebind_imported_singleton("tool_manager", old_tool_manager, new_tool_manager)
     llm_manager.llm_cache.clear()
+
+
+def _rebind_imported_singleton(name: str, previous: object, current: object) -> None:
+    """Replace module-level singleton aliases that still point at an outdated Ferry object."""
+    for module in list(sys.modules.values()):
+        if module is None:
+            continue
+        if getattr(module, name, None) is previous:
+            setattr(module, name, current)

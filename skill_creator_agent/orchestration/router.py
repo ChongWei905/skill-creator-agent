@@ -96,6 +96,36 @@ class UnifiedRouter:
         """Create a router bound to one Ferry-managed LLM name."""
         self.model_name = model_name
 
+    @staticmethod
+    def _normalize_router_output(
+        raw: dict[str, Any],
+        *,
+        fallback_state: str,
+        fallback_decision: str,
+        allowed_decisions: set[str],
+        allowed_states: set[str],
+    ) -> RouterDecision:
+        decision = str(raw.get("decision", "")).strip()
+        next_state = str(raw.get("next_state", "")).strip()
+        if decision not in allowed_decisions:
+            decision = fallback_decision
+        if next_state not in allowed_states:
+            next_state = fallback_state
+        goal_action = raw.get("goal_action")
+        feedback_action = raw.get("feedback_action")
+        question_action = raw.get("question_action")
+        return RouterDecision(
+            decision=decision,
+            next_state=next_state,
+            confidence=float(raw.get("confidence", 0) or 0),
+            needs_clarification=bool(raw.get("needs_clarification", False)),
+            normalized_goal=str((goal_action or {}).get("normalized_goal", "")).strip(),
+            feedback_type=str((feedback_action or {}).get("type", "none")).strip() or "none",
+            feedback_summary=str((feedback_action or {}).get("summary", "")).strip(),
+            next_question_type=str((question_action or {}).get("next_question_type", "none")).strip() or "none",
+            reuse_previous_plan=bool((question_action or {}).get("reuse_previous_plan", False)),
+        )
+
     async def route_user_reply(self, state: SessionState, reply: str) -> RouterDecision:
         """Route one user reply from the current workflow state into the next state."""
         allowed = ALLOWED_USER_DECISIONS.get(state.workflow_stage)
@@ -204,36 +234,6 @@ class UnifiedRouter:
             response_format={"type": "json_object"},
         )
         return _parse_json(response.content)
-
-    def _normalize_router_output(
-        self,
-        raw: dict[str, Any],
-        *,
-        fallback_state: str,
-        fallback_decision: str,
-        allowed_decisions: set[str],
-        allowed_states: set[str],
-    ) -> RouterDecision:
-        decision = str(raw.get("decision", "")).strip()
-        next_state = str(raw.get("next_state", "")).strip()
-        if decision not in allowed_decisions:
-            decision = fallback_decision
-        if next_state not in allowed_states:
-            next_state = fallback_state
-        goal_action = raw.get("goal_action")
-        feedback_action = raw.get("feedback_action")
-        question_action = raw.get("question_action")
-        return RouterDecision(
-            decision=decision,
-            next_state=next_state,
-            confidence=float(raw.get("confidence", 0) or 0),
-            needs_clarification=bool(raw.get("needs_clarification", False)),
-            normalized_goal=str((goal_action or {}).get("normalized_goal", "")).strip(),
-            feedback_type=str((feedback_action or {}).get("type", "none")).strip() or "none",
-            feedback_summary=str((feedback_action or {}).get("summary", "")).strip(),
-            next_question_type=str((question_action or {}).get("next_question_type", "none")).strip() or "none",
-            reuse_previous_plan=bool((question_action or {}).get("reuse_previous_plan", False)),
-        )
 
 
 def _parse_json(content: Any) -> dict[str, Any]:
