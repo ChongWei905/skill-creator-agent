@@ -27,19 +27,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--skills-root",
-        default=str(project_path("skills")),
-        help="Skill root to expose to the runtime.",
+        default=None,
+        help="Override the skill root exposed to the runtime. Defaults to config.yaml when omitted.",
     )
     parser.add_argument(
         "--graph-base-url",
-        default="http://127.0.0.1:8000",
-        help="Graph API base URL.",
+        default=None,
+        help="Override the graph API base URL. Defaults to config.yaml when omitted.",
     )
     parser.add_argument(
         "--graph-timeout",
         type=int,
-        default=30,
-        help="Graph API timeout in seconds.",
+        default=None,
+        help="Override the graph API timeout in seconds. Defaults to config.yaml when omitted.",
     )
     parser.add_argument(
         "--disable-graph",
@@ -100,7 +100,7 @@ async def async_main(argv: list[str] | None = None) -> int:
     session = build_data_agent_session(
         args.config,
         skills_root=args.skills_root,
-        graph_enabled=not args.disable_graph,
+        graph_enabled=False if args.disable_graph else None,
         graph_base_url=args.graph_base_url,
         graph_timeout=args.graph_timeout,
         user_id=args.user_id,
