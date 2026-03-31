@@ -110,7 +110,7 @@ def create_skill_scaffold(
     - Keep the scaffolded `SKILL.md` YAML frontmatter valid: `name` must stay equal to the
       directory slug, and you should not add a separate `slug` field
     - For graph-backed skills, generate Python scripts that use
-      `from connectors import GraphConnector`
+      `from knowledge_skills.connectors import GraphConnector`
     - Read `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` from the environment inside those scripts
     - Do not hardcode sqlite/local database paths or fallback demo datasets
 

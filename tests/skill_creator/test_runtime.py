@@ -43,7 +43,7 @@ def test_runtime_executes_script_and_returns_structured_result():
     assert result["stderr"] == ""
 
 
-def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
+def test_runtime_executes_graph_script_with_package_connector_import(tmp_path):
     runtime = SkillCreatorRuntime.from_config(
         {
             "SKILL_CREATOR": {
@@ -58,13 +58,13 @@ def test_runtime_executes_graph_script_with_connectors_compat_import(tmp_path):
 
     runtime.create_skill_scaffold(
         "connector-compat-skill",
-        "Checks GraphConnector compatibility imports.",
+        "Checks GraphConnector package imports.",
         body="# Connector Compat Skill",
         script_files={
             "check_connector.py": (
                 "import json\n"
                 "import os\n"
-                "from connectors import GraphConnector\n\n"
+                "from knowledge_skills.connectors import GraphConnector\n\n"
                 "connector = GraphConnector(\n"
                 "    base_url=os.getenv('GRAPH_DB_BASE_URL', ''),\n"
                 "    timeout=int(os.getenv('GRAPH_DB_TIMEOUT', '0')),\n"

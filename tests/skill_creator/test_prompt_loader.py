@@ -32,6 +32,15 @@ PROMPT_NAMES = (
     SYSTEM_PROMPT_BASE,
     SYSTEM_PROMPT_DIRECT_QUERY,
 )
+EXPECTED_PROMPT_OVERRIDES = {
+    SKILL_CREATION_WORKFLOW: (
+        ("from connectors import GraphConnector", "from knowledge_skills.connectors import GraphConnector"),
+        (
+            "from connectors import graph_property_filter",
+            "from knowledge_skills.connectors import graph_property_filter",
+        ),
+    ),
+}
 
 
 def test_prompt_loader_lists_expected_prompts():
@@ -72,4 +81,6 @@ def test_prompt_markdown_matches_workflow_svc_sources():
     for prompt_name in PROMPT_NAMES:
         current = prompt_path(prompt_name).read_text(encoding="utf-8")
         original = (WORKFLOW_SVC_PROMPTS / f"{prompt_name}.md").read_text(encoding="utf-8")
+        for before, after in EXPECTED_PROMPT_OVERRIDES.get(prompt_name, ()):
+            original = original.replace(before, after)
         assert current == original, prompt_name

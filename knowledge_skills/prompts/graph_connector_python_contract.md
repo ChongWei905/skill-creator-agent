@@ -3,7 +3,7 @@
 When writing Python skill scripts, the current connector API is:
 
 ```python
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 
 connector = GraphConnector(
     base_url=os.getenv("GRAPH_DB_BASE_URL"),

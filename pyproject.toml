@@ -21,7 +21,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["knowledge_skills*", "connectors*"]
+include = ["knowledge_skills*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

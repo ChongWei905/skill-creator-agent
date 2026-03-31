@@ -27,7 +27,7 @@ Stage instructions:
 - Use the provided English skill title for the visible title in `SKILL.md`.
 - Keep the package name, visible title, script filename, module naming, and CLI examples in clean English. Do not introduce Chinese skill names, Chinese filenames, or Chinese-only titles.
 - The skill should remain reusable. Do not hardcode the current example branch, bank, or user-specific identifiers into the reusable logic.
-- For graph-backed skills, write Python that uses `from connectors import GraphConnector`.
+- For graph-backed skills, write Python that uses `from knowledge_skills.connectors import GraphConnector`.
 - Read `GRAPH_DB_BASE_URL` and `GRAPH_DB_TIMEOUT` from the environment.
 - Use the exact GraphConnector API from the contract above.
 - When calling `execute_skill_script`, pass `arguments` as a real JSON array such as `["--branch_name", "蛇口支行"]`. Do not pass a quoted JSON string, and do not collapse multiple CLI arguments into one string.

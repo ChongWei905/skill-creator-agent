@@ -164,7 +164,7 @@ You MUST create:
 
 import os
 import json
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 
 def main():
     # 🔥 CRITICAL: Read configuration from environment variables
@@ -227,7 +227,7 @@ Environment Variables Required:
 import os
 import sys
 import json
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 
 def get_graph_connector():
     """Get configured GraphConnector instance
@@ -293,7 +293,7 @@ Environment Variables:
 import os
 import sys
 import json
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 
 def query_organization(org_name: str):
     """Query organization by name using environment configuration"""
@@ -373,7 +373,7 @@ base_url = os.getenv("GRAPH_DB_BASE_URL")  # Auto-provided
 timeout = int(os.getenv("GRAPH_DB_TIMEOUT", "30"))  # Auto-provided
 
 # PYTHONPATH is automatically set, just import:
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 ```
 ---
 
@@ -410,7 +410,7 @@ if __name__ == "__main__":
 
 #### **Script Requirements Checklist:**
 
-- [ ] Uses **direct imports** (`from connectors import GraphConnector`)
+- [ ] Uses **direct imports** (`from knowledge_skills.connectors import GraphConnector`)
 - [ ] **NO** `sys.path.insert()` or `sys.path.append()`
 - [ ] Uses correct method names (without `graph_` prefix)
 - [ ] Accepts command-line arguments
@@ -427,13 +427,13 @@ if __name__ == "__main__":
 ❌ **Mistake 1: Wrong function name**
 ```python
 # WRONG
-from connectors import graph_property_filter  # No such function!
+from knowledge_skills.connectors import graph_property_filter  # No such function!
 results = graph_property_filter(...)
 ```
 ✅ **Correct:**
 ```python
 # CORRECT
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 connector = GraphConnector(...)
 results = connector.property_filter(...)
 ```
@@ -448,7 +448,7 @@ sys.path.insert(0, '/path/to/project')
 ✅ **Correct:**
 ```python
 # CORRECT - Just import directly
-from connectors import GraphConnector
+from knowledge_skills.connectors import GraphConnector
 ```
 ---
 
@@ -529,7 +529,7 @@ result = subprocess.run(
 3. **Script example (query_org.py):**
    ```python
    import os
-   from connectors import GraphConnector
+   from knowledge_skills.connectors import GraphConnector
    
    connector = GraphConnector(
        base_url=os.getenv("GRAPH_DB_BASE_URL"),  # ✅ From environment

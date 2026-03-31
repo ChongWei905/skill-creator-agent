@@ -286,7 +286,6 @@ flowchart TD
 .
 ├── config.yaml.example
 ├── skills/
-├── connectors/
 ├── knowledge_skills/
 │   ├── ferry_integration/
 │   │   ├── config.py
@@ -418,7 +417,7 @@ python -m pytest tests/skill_creator/test_session.py -q
 - 分析阶段 agent 调用的工具和运行时 skill 调用的代码应该如何分层
 - 哪些能力属于内部实现，哪些能力属于对 skill 作者公开承诺的稳定接口
 
-当前 `connectors` 这类兼容壳虽然能工作，但不适合作为长期模式继续扩张。后续如果再加入更多可供 skill 调用的能力模块，例如输出格式化、缓存、文件处理、业务 helper，如果仍然沿用“内部模块旁再做一个镜像桥接层”的方式，维护成本会越来越高，暴露面也会越来越混乱。
+当前 graph 相关 skill 已经直接使用 `knowledge_skills.connectors` 作为公开导入面，但这仍然只是一个过渡性的公共 surface。后续如果再加入更多可供 skill 调用的能力模块，例如输出格式化、缓存、文件处理、业务 helper，如果仍然继续让 skill 直接依赖 `knowledge_skills.*` 内部模块，维护成本会越来越高，暴露面也会越来越混乱。
 
 目标结构应当是明确分成几层：
 
@@ -431,7 +430,7 @@ python -m pytest tests/skill_creator/test_session.py -q
 - Public Skill SDK
   - 供生成出来的 skill 脚本直接 import
   - 这应当是一个稳定、刻意收敛、长期兼容的公开 API 面
-  - 例如未来应更倾向于 `from skill_sdk.graph import GraphClient` 这类显式公共接口，而不是继续依赖 `from connectors import GraphConnector`
+  - 例如未来应更倾向于 `from skill_sdk.graph import GraphClient` 这类显式公共接口，而不是长期直接依赖 `from knowledge_skills.connectors import GraphConnector`
 - Orchestration / runtime
   - 负责把配置、依赖和运行上下文注入给上面两层
   - 不应让 skill 脚本直接依赖 orchestration 或 Ferry 内部细节
@@ -448,14 +447,14 @@ python -m pytest tests/skill_creator/test_session.py -q
 
 - agent 调工具，skill 调 SDK，二者共享底层 capability 实现，但不共享同一个 import surface
 - 新生成的 skill 不再直接 import `knowledge_skills.*`、`orchestration.*`、`ferry_integration.*`
-- `connectors` 这类兼容壳进入明确的 deprecated 生命周期，后续逐步迁出
+- 目前直接暴露给 skill 的 `knowledge_skills.connectors` 等路径进入明确的过渡生命周期，后续收敛到独立 Skill SDK
 
 在真正动手前，应先定清楚：
 
 - 公共 Skill SDK 的目录结构
 - 每个 capability 属于哪个暴露面
 - prompt 中允许生成 skill 使用哪些稳定 import
-- 兼容层的迁移策略和废弃节奏
+- 现有公共导入面的迁移策略和废弃节奏
 
 ### 2. 与 Anthropic 风格的 skill 渐进式披露机制进一步对齐
 
