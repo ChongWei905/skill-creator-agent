@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from knowledge_skills.paths import import_root, project_path
+from knowledge_skills.paths import import_root
 
 
 @dataclass
