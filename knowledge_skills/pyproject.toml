@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skill-creator-agent"
+version = "0.1.0"
+description = "Standalone knowledge skills runtime extracted from Ferry."
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+skill-creator-chat = "knowledge_skills.main:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0",
+]
+
+[tool.setuptools]
+packages = [
+  "knowledge_skills",
+  "knowledge_skills.connectors",
+  "knowledge_skills.ferry_integration",
+  "knowledge_skills.loaders",
+  "knowledge_skills.models",
+  "knowledge_skills.orchestration",
+  "knowledge_skills.orchestration.stages",
+  "knowledge_skills.prompts",
+]
+
+[tool.setuptools.package-dir]
+"knowledge_skills" = "."
+"knowledge_skills.connectors" = "connectors"
+"knowledge_skills.ferry_integration" = "ferry_integration"
+"knowledge_skills.loaders" = "loaders"
+"knowledge_skills.models" = "models"
+"knowledge_skills.orchestration" = "orchestration"
+"knowledge_skills.orchestration.stages" = "orchestration/stages"
+"knowledge_skills.prompts" = "prompts"
+
+[tool.setuptools.package-data]
+"knowledge_skills.prompts" = ["*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -286,21 +286,21 @@ flowchart TD
 .
 ├── config.yaml.example
 ├── skills/
-├── knowledge_skills/
-│   ├── ferry_integration/
-│   │   ├── config.py
-│   │   ├── runtime_reset.py
-│   │   └── tools.py
-│   ├── orchestration/
-│   │   ├── stages/
-│   │   ├── drafts.py
-│   │   ├── models.py
-│   │   ├── router.py
-│   │   ├── session.py
-│   │   └── stage_runner.py
-│   ├── prompts/
-│   ├── main.py
-│   └── runtime.py
+├── connectors/
+├── ferry_integration/
+│   ├── config.py
+│   ├── runtime_reset.py
+│   └── tools.py
+├── orchestration/
+│   ├── stages/
+│   ├── drafts.py
+│   ├── models.py
+│   ├── router.py
+│   ├── session.py
+│   └── stage_runner.py
+├── prompts/
+├── main.py
+├── runtime.py
 ├── tests/
 ```
 
@@ -312,6 +312,8 @@ flowchart TD
 
 - Python 3.11+
 - 当前 Python 环境已经安装 Ferry 及其依赖
+
+以下命令默认都在当前 `knowledge_skills/` 项目目录内执行。
 
 ### 2. 准备配置
 
@@ -339,24 +341,24 @@ cp config.yaml.example config.yaml
 
 ### 3. 启动 CLI
 
-默认推荐直接通过 Python 运行仓库内脚本：
+默认推荐直接通过 Python 运行项目入口：
 
 ```bash
-python scripts/skill_creator_chat.py
+python main.py
 ```
 
 常用显式参数示例：
 
 ```bash
-python scripts/skill_creator_chat.py \
-  --skills-root /Users/weichong/Documents/new_working_area/skill-creator-agent/skills \
+python main.py \
+  --skills-root /Users/weichong/Documents/new_working_area/skill-creator-agent/knowledge_skills/skills \
   --graph-base-url http://127.0.0.1:8000
 ```
 
 也可以用 `--turn` 做非交互验证：
 
 ```bash
-python scripts/skill_creator_chat.py \
+python main.py \
   --turn "帮我分析深圳蛇口支行的本外币存款日均余额" \
   --turn "创建" \
   --turn "有，位置在/abs/path/to/reference.md"

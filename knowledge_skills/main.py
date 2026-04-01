@@ -5,8 +5,15 @@ import asyncio
 import importlib
 import json
 import logging
+from pathlib import Path
 import sys
 from typing import Any
+
+if __package__ in {None, ""}:
+    import_root = Path(__file__).resolve().parent.parent
+    import_root_text = str(import_root)
+    if import_root_text not in sys.path:
+        sys.path.append(import_root_text)
 
 from knowledge_skills.paths import project_path
 
@@ -241,3 +248,7 @@ def _json_safe(data: Any) -> Any:
     if isinstance(data, list):
         return [_json_safe(item) for item in data]
     return getattr(data, "content", str(data))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from knowledge_skills.paths import project_path
+from knowledge_skills.paths import import_root, project_path
 
 
 @dataclass
@@ -38,7 +38,7 @@ class SkillScript:
         run_cwd = cwd.resolve() if cwd else self.infer_default_cwd()
         if self.language == "python":
             pythonpath_entries = [
-                str(project_path()),
+                str(import_root()),
                 str(run_cwd),
             ]
             existing_pythonpath = run_env.get("PYTHONPATH")

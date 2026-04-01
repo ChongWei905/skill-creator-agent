@@ -8,9 +8,14 @@ def package_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def project_root() -> Path:
-    """Return the repository root directory."""
+def import_root() -> Path:
+    """Return the parent directory that must be on ``sys.path`` to import this package."""
     return package_root().parent
+
+
+def project_root() -> Path:
+    """Return the project root directory."""
+    return package_root()
 
 
 def package_path(*parts: str) -> Path:
@@ -30,13 +35,17 @@ def project_path(*parts: str) -> Path:
 
 
 def resolve_local_path(path: str | Path) -> Path:
-    """Resolve a local path against the package root first, then the repository root."""
+    """Resolve a local path against the project root first, then the legacy repository root."""
     candidate = Path(path).expanduser()
     if candidate.is_absolute():
         return candidate.resolve()
 
-    package_candidate = (package_root() / candidate).resolve()
-    if package_candidate.exists():
-        return package_candidate
+    project_candidate = (project_root() / candidate).resolve()
+    if project_candidate.exists():
+        return project_candidate
 
-    return (project_root() / candidate).resolve()
+    legacy_candidate = (import_root() / candidate).resolve()
+    if legacy_candidate.exists():
+        return legacy_candidate
+
+    return project_candidate
