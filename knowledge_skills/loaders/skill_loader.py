@@ -59,7 +59,7 @@ class SkillLoader:
             raise ValueError(f"name exceeds 64 characters: {len(name)}")
         if not re.match(r"^[a-z0-9-]+$", name):
             raise ValueError("name can only contain lowercase letters, numbers, and hyphens")
-        if name.lower() in {"anthropic", "claude"}:
+        if name in {"anthropic", "claude"}:
             raise ValueError(f"reserved skill name: {name}")
         if "<" in name or ">" in name:
             raise ValueError("name cannot contain XML tags")

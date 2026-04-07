@@ -1,15 +1,40 @@
 from __future__ import annotations
 
+import pytest
+
 import knowledge_skills.ferry_integration.tools as ferry_tools_module
+from knowledge_skills.ferry_integration.argument_normalizer import (
+    normalize_cli_arguments,
+    normalize_string_list,
+)
 from knowledge_skills.ferry_integration.config import DEFAULT_GRAPH_TOOLS, DEFAULT_RUNTIME_TOOLS
 from knowledge_skills.ferry_integration.runtime_reset import reset_ferry_singletons
 from knowledge_skills.ferry_integration.tools import (
     configure_runtime_tools,
     execute_skill_script,
     graph_property_filter,
+    reload_skill,
     reset_runtime_tools,
 )
 from knowledge_skills.runtime import SkillCreatorRuntime
+
+
+def test_string_list_normalizers_share_parsing_behavior():
+    assert normalize_cli_arguments('["--branch_name", "蛇口支行"]') == ["--branch_name", "蛇口支行"]
+    assert normalize_string_list('["--branch_name", "蛇口支行"]', field_name="return_vars") == [
+        "--branch_name",
+        "蛇口支行",
+    ]
+    assert normalize_cli_arguments("--branch_name 蛇口支行") == ["--branch_name", "蛇口支行"]
+    assert normalize_string_list("--branch_name 蛇口支行", field_name="return_vars") == [
+        "--branch_name",
+        "蛇口支行",
+    ]
+
+
+def test_normalize_cli_arguments_preserves_specific_error_message():
+    with pytest.raises(ValueError, match="JSON/shell-style string"):
+        normalize_cli_arguments(1)
 
 
 def test_skill_creator_tools_register_with_ferry_tool_manager(tmp_path):
@@ -162,6 +187,31 @@ def test_execute_skill_script_normalizes_python_literal_argument_array(monkeypat
     )
 
     assert captured["args"] == ["--branch_name", "蛇口支行"]
+
+
+def test_reload_skill_uses_one_runtime_lookup(monkeypatch):
+    calls = 0
+
+    class StubRuntime:
+        @staticmethod
+        def reload_skill(skill_name):
+            return {"name": skill_name}
+
+        @staticmethod
+        def skill_to_dict(skill):
+            return {"skill": skill["name"]}
+
+    def get_runtime_tools_once():
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise AssertionError("reload_skill should reuse the runtime from the first lookup.")
+        return StubRuntime()
+
+    monkeypatch.setattr(ferry_tools_module, "get_runtime_tools", get_runtime_tools_once)
+
+    assert reload_skill("demo-skill") == {"skill": "demo-skill"}
+    assert calls == 1
 
 
 def test_graph_property_filter_normalizes_stringified_filter_dict(monkeypatch):

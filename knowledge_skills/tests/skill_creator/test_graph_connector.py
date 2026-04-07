@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import gc
+import weakref
+
 import pytest
 
 from knowledge_skills.connectors import GraphConnector
@@ -51,6 +54,21 @@ def test_graph_connector_pattern_search_normalizes_var_style_return_vars():
     assert connector.calls[-1][2]["return_vars"] == ["a", "c"]
 
 
+def test_graph_connector_pattern_search_normalizes_var25_return_var():
+    connector = RecordingGraphConnector()
+
+    connector.pattern_search([["Organ", {}]], return_vars=["var25"])
+
+    assert connector.calls[-1][2]["return_vars"] == ["z"]
+
+
+def test_graph_connector_pattern_search_rejects_out_of_range_return_var():
+    connector = RecordingGraphConnector()
+
+    with pytest.raises(ValueError, match="var0 and var25"):
+        connector.pattern_search([["Organ", {}]], return_vars=["var26"])
+
+
 def test_graph_connector_property_info_search_extracts_properties():
     connector = RecordingGraphConnector()
 
@@ -65,6 +83,18 @@ def test_graph_connector_count_search_extracts_integer():
     result = connector.count_search("Organ", "NODE", {})
 
     assert result == 11
+
+
+def test_graph_connector_schema_cache_does_not_retain_connector_instance():
+    connector = RecordingGraphConnector()
+    connector.get_object_types()
+    connector.get_object_relations()
+    connector_ref = weakref.ref(connector)
+
+    del connector
+    gc.collect()
+
+    assert connector_ref() is None
 
 
 def test_graph_connector_property_filter_normalizes_generic_element_target():

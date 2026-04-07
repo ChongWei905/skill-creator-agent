@@ -9,19 +9,10 @@ from typing import Any
 
 def normalize_cli_arguments(arguments: Any) -> list[str] | None:
     """Normalize CLI-style arguments into a list of strings."""
-    if arguments is None:
-        return None
-    if isinstance(arguments, str):
-        normalized = arguments.strip()
-        if not normalized:
-            return None
-        parsed = _try_parse_json(normalized)
-        if isinstance(parsed, list):
-            return [str(item) for item in parsed]
-        return [str(item) for item in shlex.split(normalized)]
-    if isinstance(arguments, Sequence) and not isinstance(arguments, (str, bytes, bytearray)):
-        return [str(item) for item in arguments]
-    raise ValueError("arguments must be a list of strings or a JSON/shell-style string.")
+    return _normalize_string_list(
+        arguments,
+        error_message="arguments must be a list of strings or a JSON/shell-style string.",
+    )
 
 
 def normalize_mapping_argument(value: Any, *, field_name: str) -> dict[str, Any] | None:
@@ -43,6 +34,10 @@ def normalize_mapping_argument(value: Any, *, field_name: str) -> dict[str, Any]
 
 def normalize_string_list(value: Any, *, field_name: str) -> list[str] | None:
     """Normalize a native or stringified list of strings."""
+    return _normalize_string_list(value, error_message=f"{field_name} must be a list of strings.")
+
+
+def _normalize_string_list(value: Any, *, error_message: str) -> list[str] | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -55,7 +50,7 @@ def normalize_string_list(value: Any, *, field_name: str) -> list[str] | None:
         return [str(item) for item in shlex.split(normalized)]
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [str(item) for item in value]
-    raise ValueError(f"{field_name} must be a list of strings.")
+    raise ValueError(error_message)
 
 
 def normalize_nested_list(value: Any, *, field_name: str) -> list[list[Any]]:

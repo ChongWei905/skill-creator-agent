@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from functools import lru_cache
+from functools import cached_property
 from typing import Any
 from urllib import error, request
 
@@ -30,7 +30,10 @@ class GraphConnector:
         normalized: list[str] = []
         for name in return_vars:
             if name.startswith("var") and name[3:].isdigit():
-                normalized.append(chr(97 + int(name[3:])))
+                index = int(name[3:])
+                if index > 25:
+                    raise ValueError("return_vars entries using varN syntax must be between var0 and var25.")
+                normalized.append(chr(ord("a") + index))
             else:
                 normalized.append(name)
         return normalized
@@ -111,15 +114,13 @@ class GraphConnector:
         normalized_parts = [cls._normalize_filter_atom(part.strip()) for part in parts]
         return " OR ".join(normalized_parts)
 
-    @lru_cache(maxsize=1)
     def get_object_types(self) -> list[str]:
         """Return all object types exposed by the graph service."""
-        return self._request("GET", "/api/v1/search/get_object_types")
+        return self._object_types
 
-    @lru_cache(maxsize=1)
     def get_object_relations(self) -> list[str]:
         """Return all relation types exposed by the graph service."""
-        return self._request("GET", "/api/v1/search/get_object_relations")
+        return self._object_relations
 
     def property_filter(
         self,
@@ -321,6 +322,14 @@ class GraphConnector:
     def build_request_url(self, path: str) -> str:
         """Build the effective graph request URL for one API path."""
         return f"{self.base_url}{path}{self.url_suffix}"
+
+    @cached_property
+    def _object_types(self) -> list[str]:
+        return self._request("GET", "/api/v1/search/get_object_types")
+
+    @cached_property
+    def _object_relations(self) -> list[str]:
+        return self._request("GET", "/api/v1/search/get_object_relations")
 
     def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
         url = self.build_request_url(path)

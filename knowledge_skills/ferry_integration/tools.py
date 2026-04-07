@@ -84,8 +84,9 @@ def execute_skill_script(
 
 def reload_skill(skill_name: str) -> dict[str, Any]:
     """Reload a skill from disk after creating or updating its files."""
-    skill = get_runtime_tools().reload_skill(skill_name)
-    return get_runtime_tools().skill_to_dict(skill)
+    runtime = get_runtime_tools()
+    skill = runtime.reload_skill(skill_name)
+    return runtime.skill_to_dict(skill)
 
 
 def create_skill_scaffold(

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from knowledge_skills.paths import resolve_local_path
 from knowledge_skills.loaders import SkillLoader
 
@@ -43,6 +45,20 @@ def test_skill_loader_skips_invalid_skill_when_not_strict(tmp_path: Path):
     skills = loader.load_all()
 
     assert list(skills) == ["valid-skill"]
+
+
+def test_skill_loader_rejects_reserved_skill_name(tmp_path: Path):
+    skill_dir = tmp_path / "anthropic"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: anthropic\ndescription: Reserved fixture skill.\n---\n\n# Reserved\n",
+        encoding="utf-8",
+    )
+
+    loader = SkillLoader(tmp_path)
+
+    with pytest.raises(ValueError, match="reserved skill name: anthropic"):
+        loader.load_skill_dir(skill_dir)
 
 
 def test_skill_loader_reload_skill_re_reads_disk(tmp_path: Path):
